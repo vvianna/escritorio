@@ -34,9 +34,16 @@ import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
 import { createBuildReader } from './build';
+import { SOMENTE_LEITURA } from './somente-leitura';
 import { UpdateChecker } from './updates/checker';
 
 const config = loadConfig();
+// Escritório somente leitura (flag de build, server/somente-leitura.ts): terminal, responder pelo escritório e
+// mensagens nem chegam a ser criados, qualquer que seja o ambiente.
+if (SOMENTE_LEITURA) {
+  config.terminal = false;
+  config.messages = false;
+}
 const startedAt = Date.now();
 
 // Nome antigo (CodeTown, até a 0.3.2): leva ~/.codetown para ~/.habblaud antes de ler qualquer estado e avisa
@@ -98,7 +105,7 @@ const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codex
 if (codex) agents.add(codex);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
-const codexLive: CodexLive | undefined = codex;
+const codexLive: CodexLive | undefined = SOMENTE_LEITURA ? undefined : codex;
 late.office = office;
 late.agents = agents;
 const hub = new Hub(office);
@@ -195,6 +202,7 @@ const api = createApiHandler({
   codexLive,
   stats,
   updates,
+  somenteLeitura: SOMENTE_LEITURA,
 });
 
 const server = http.createServer();

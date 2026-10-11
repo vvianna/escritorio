@@ -1,14 +1,6 @@
 // Empacota o servidor (TypeScript) em um único arquivo ESM em dist/server.
 import { build } from 'esbuild';
+import { serverBuildOptions } from './build-server-options.mjs';
 
-await build({
-  entryPoints: ['server/index.ts'],
-  outfile: 'dist/server/index.js',
-  bundle: true,
-  platform: 'node',
-  target: 'node20',
-  format: 'esm',
-  packages: 'external',
-  sourcemap: true,
-  logLevel: 'info',
-});
+// Inclui a flag de build __ESCRITORIO_SOMENTE_LEITURA__ (ver build-server-options.mjs).
+await build(serverBuildOptions());
