@@ -1,18 +1,24 @@
 // Trava do escritório (fork do Habblaud para o time de agentes do Hermes): o servidor só observa.
 //
-// A flag vem do BUILD: scripts/build-server.mjs troca __ESCRITORIO_SOMENTE_LEITURA__ por um literal (true, salvo
-// ESCRITORIO_SOMENTE_LEITURA=0 na hora do build). No bundle, nenhuma variável de ambiente em tempo de execução
-// religa as rotas de escrita. Sem build (tsx/dev/testes) vale ESCRITORIO_SOMENTE_LEITURA, ligada por padrão.
+// DESLIGADA por padrão: sem flag, as rotas de escrita do Habblaud original funcionam como antes.
+// Liga só com a flag explícita ESCRITORIO_SOMENTE_LEITURA=1 (1/true/yes/sim/on):
+//   - no BUILD (scripts/build-server-options.mjs): o bundle grava `true` como literal e nenhuma variável de
+//     ambiente em tempo de execução religa a escrita;
+//   - sem a flag no build, vale a mesma variável em tempo de execução (tsx/dev/testes e bundle padrão).
 //
-// Com a trava, as rotas que escrevem ou abrem conteúdo das sessões respondem 404 como se não existissem:
+// Com a trava ligada, as rotas que escrevem ou abrem conteúdo das sessões respondem 404 como se não existissem:
 // permissões, mensagens (e as caixas de entrada do mod/Codex), terminal, histórico de sessões, personagem,
 // renomear sala, demo, eventos do Codex e qualquer outro método que não seja GET/HEAD.
 
 declare const __ESCRITORIO_SOMENTE_LEITURA__: boolean | undefined;
 
+/** true só com valor explícito de "ligado"; ausente, vazio ou qualquer outro valor = trava desligada. */
+export function flagLigada(v: string | undefined): boolean {
+  return /^(1|true|yes|sim|on)$/i.test((v ?? '').trim());
+}
+
 function fromEnv(): boolean {
-  const v = process.env.ESCRITORIO_SOMENTE_LEITURA?.trim();
-  return !(v && /^(0|false|no|nao|não|off)$/i.test(v));
+  return flagLigada(process.env.ESCRITORIO_SOMENTE_LEITURA);
 }
 
 export const SOMENTE_LEITURA: boolean =

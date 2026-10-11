@@ -38,8 +38,8 @@ import { SOMENTE_LEITURA } from './somente-leitura';
 import { UpdateChecker } from './updates/checker';
 
 const config = loadConfig();
-// Escritório somente leitura (flag de build, server/somente-leitura.ts): terminal, responder pelo escritório e
-// mensagens nem chegam a ser criados, qualquer que seja o ambiente.
+// Escritório somente leitura (desligado por padrão; só com ESCRITORIO_SOMENTE_LEITURA=1, ver server/somente-leitura.ts):
+// com a trava ligada, terminal, responder pelo escritório e mensagens nem chegam a ser criados.
 if (SOMENTE_LEITURA) {
   config.terminal = false;
   config.messages = false;

@@ -15,7 +15,7 @@ const semComentarios = compose
 describe('docker-compose.yml do escritório', () => {
   it('publica a porta só no IP Tailscale 100.83.157.12', () => {
     const portas = [...semComentarios.matchAll(/^\s+- "([^"]+):4747"$/gm)].map((m) => m[1]);
-    expect(portas).toEqual(['100.83.157.12:${ESCRITORIO_PORTA:-4317}']);
+    expect(portas).toEqual(['100.83.157.12:${ESCRITORIO_PORTA:-4747}']);
     expect(semComentarios).not.toMatch(/0\.0\.0\.0|127\.0\.0\.1|HABBLAUD_BIND:-/);
   });
 
@@ -31,6 +31,12 @@ describe('docker-compose.yml do escritório', () => {
 
   it('não monta .env, auth.json nem config.yaml', () => {
     expect(semComentarios).not.toMatch(/\.env|auth\.json|config\.yaml/);
+  });
+
+  it('trava somente leitura desligada por padrão: só liga com ESCRITORIO_SOMENTE_LEITURA explícita no build', () => {
+    expect(semComentarios).toMatch(/ESCRITORIO_SOMENTE_LEITURA: \$\{ESCRITORIO_SOMENTE_LEITURA:-\}/);
+    // Escrita do Habblaud não é forçada a "0" no compose.
+    expect(semComentarios).not.toMatch(/HABBLAUD_(TERMINAL|MENSAGENS|CODEX): "0"/);
   });
 });
 

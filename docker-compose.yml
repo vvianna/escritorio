@@ -1,4 +1,4 @@
-# Escritório do time de agentes do Hermes (fork do Habblaud), SÓ LEITURA e SÓ pela Tailscale.
+# Escritório do time de agentes do Hermes (fork do Habblaud), SÓ pela Tailscale.
 #
 # Regras (spec time-de-agentes, fase 4, escritorio.md "Regras de segurança"):
 #   - porta publicada SÓ no IP Tailscale do Gargantua (100.83.157.12): nada em 0.0.0.0 nem em 127.0.0.1,
@@ -6,7 +6,9 @@
 #   - nenhuma montagem gravável: os bancos do Hermes entram read-only pelo docker-compose.override.yml
 #     gerado por `bash tools/gerar-montagens.sh` (só kanban.db e state.db, nunca .env/auth.json/config.yaml);
 #     o estado do próprio escritório (/data) e o /tmp ficam em tmpfs (memória, some ao parar);
-#   - rotas de escrita desligadas no BUILD (server/somente-leitura.ts): o Dockerfile roda o build padrão;
+#   - trava somente leitura (server/somente-leitura.ts) DESLIGADA por padrão: as rotas de escrita do Habblaud
+#     funcionam como antes. Para ligar, só com flag explícita no build:
+#     `ESCRITORIO_SOMENTE_LEITURA=1 docker compose up -d --build` (aí nada em execução religa a escrita);
 #   - NÃO use `npm run docker:up` (é o fluxo do Habblaud: monta as pastas do Claude Code).
 #
 # Ligar é passo do Victor: `bash tools/gerar-montagens.sh && docker compose up -d --build`.
@@ -15,22 +17,27 @@ name: escritorio
 
 services:
   escritorio:
-    build: .
+    build:
+      context: .
+      args:
+        # Vazio = trava desligada (padrão). 1 = build somente leitura.
+        ESCRITORIO_SOMENTE_LEITURA: ${ESCRITORIO_SOMENTE_LEITURA:-}
     image: escritorio:local
     container_name: escritorio
     restart: unless-stopped
     ports:
-      - "100.83.157.12:${ESCRITORIO_PORTA:-4317}:4747"
+      - "100.83.157.12:${ESCRITORIO_PORTA:-4747}:4747"
     environment:
       # Nome extra aceito no cabeçalho Host (IPs, como 100.83.157.12, sempre valem).
       HABBLAUD_ALLOWED_HOSTS: ${ESCRITORIO_HOSTS:-gargantua}
       HABBLAUD_BIND: 100.83.157.12
-      # Redundante com a flag de build, mas explícito: nada de terminal, mensagens, Codex, timelapse nem GitHub.
-      HABBLAUD_TERMINAL: "0"
-      HABBLAUD_MENSAGENS: "0"
-      HABBLAUD_CODEX: "0"
-      HABBLAUD_TIMELINE: "0"
-      HABBLAUD_UPDATE_CHECK: "0"
+      # Como no Habblaud original: vazio = padrão do Habblaud; "0" desliga (terminal, mensagens, Codex).
+      HABBLAUD_TERMINAL: ${HABBLAUD_TERMINAL:-}
+      HABBLAUD_MENSAGENS: ${HABBLAUD_MENSAGENS:-}
+      HABBLAUD_CODEX: ${HABBLAUD_CODEX:-}
+      # Saídas para a internet (timelapse/GitHub) seguem desligadas por padrão; "1" no .env religa.
+      HABBLAUD_TIMELINE: ${HABBLAUD_TIMELINE:-0}
+      HABBLAUD_UPDATE_CHECK: ${HABBLAUD_UPDATE_CHECK:-0}
       # Onde as fontes do Hermes (server/sources/hermes.ts) acham os bancos montados pelo override.
       HERMES_ROOT: /hermes
       ESCRITORIO_PLANTAO_DIR: /plantao/incidentes

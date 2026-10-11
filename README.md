@@ -2,11 +2,13 @@
 > [marmottajr](https://github.com/marmottajr), sob a licença MIT (mantida em [`LICENSE`](LICENSE)).** Todo o crédito
 > do escritório em pixel art é do autor original.
 >
-> O fork vira o escritório do time de agentes do Hermes, com três travas:
-> - **somente leitura**: o build (`scripts/build-server-options.mjs`) grava a flag `__ESCRITORIO_SOMENTE_LEITURA__` e as
->   rotas que escrevem ou abrem conteúdo de sessão (permissões, mensagens, terminal, histórico, personagem, renomear
->   sala, demo, Codex) respondem 404; nenhuma variável de ambiente religa isso em execução (`server/somente-leitura.ts`);
-> - **só Tailscale**: o `docker-compose.yml` publica a porta só em `100.83.157.12` (nada em `0.0.0.0`/`127.0.0.1`);
+> O fork vira o escritório do time de agentes do Hermes, com estas travas:
+> - **somente leitura (DESLIGADA por padrão)**: sem flag, as rotas de escrita do Habblaud funcionam como antes. Só
+>   liga com `ESCRITORIO_SOMENTE_LEITURA=1` explícita no build (`scripts/build-server-options.mjs` grava a flag
+>   `__ESCRITORIO_SOMENTE_LEITURA__`); aí as rotas que escrevem ou abrem conteúdo de sessão (permissões, mensagens,
+>   terminal, histórico, personagem, renomear sala, demo, Codex) respondem 404 e nenhuma variável de ambiente religa
+>   isso em execução (`server/somente-leitura.ts`). Ex.: `ESCRITORIO_SOMENTE_LEITURA=1 docker compose up -d --build`;
+> - **só Tailscale**: o `docker-compose.yml` publica a porta (padrão 4747) só em `100.83.157.12` (nada em `0.0.0.0`/`127.0.0.1`);
 > - **montagens read-only**: `bash tools/gerar-montagens.sh` gera o `docker-compose.override.yml` só com os `kanban.db`
 >   e `state.db` do Hermes (nunca `.env`, `auth.json`, `config.yaml`); `/data` e `/tmp` ficam em tmpfs.
 >

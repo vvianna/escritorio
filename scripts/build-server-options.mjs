@@ -1,10 +1,11 @@
 // Opções do esbuild para o servidor (usadas por build-server.mjs e pelo teste da trava).
 //
-// __ESCRITORIO_SOMENTE_LEITURA__ (server/somente-leitura.ts) vira um literal no bundle: true, salvo
-// ESCRITORIO_SOMENTE_LEITURA=0 no ambiente do BUILD. Em tempo de execução nada religa as rotas de escrita.
+// Trava somente leitura (server/somente-leitura.ts) DESLIGADA por padrão. Com ESCRITORIO_SOMENTE_LEITURA=1
+// (1/true/yes/sim/on) no ambiente do BUILD, __ESCRITORIO_SOMENTE_LEITURA__ vira o literal `true` no bundle e nada em
+// tempo de execução religa as rotas de escrita. Sem a flag, vira `undefined` e vale o ambiente em execução
+// (padrão: desligada, rotas de escrita do Habblaud como antes).
 export function serverBuildOptions(env = process.env) {
-  const v = (env.ESCRITORIO_SOMENTE_LEITURA ?? '').trim();
-  const somenteLeitura = !/^(0|false|no|nao|não|off)$/i.test(v);
+  const somenteLeitura = /^(1|true|yes|sim|on)$/i.test((env.ESCRITORIO_SOMENTE_LEITURA ?? '').trim());
   return {
     entryPoints: ['server/index.ts'],
     outfile: 'dist/server/index.js',
@@ -15,6 +16,6 @@ export function serverBuildOptions(env = process.env) {
     packages: 'external',
     sourcemap: true,
     logLevel: 'info',
-    define: { __ESCRITORIO_SOMENTE_LEITURA__: somenteLeitura ? 'true' : 'false' },
+    define: { __ESCRITORIO_SOMENTE_LEITURA__: somenteLeitura ? 'true' : 'undefined' },
   };
 }

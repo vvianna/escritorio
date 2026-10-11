@@ -135,7 +135,9 @@ describe('flag de build __ESCRITORIO_SOMENTE_LEITURA__', () => {
     if (envRuntime === undefined) delete process.env.ESCRITORIO_SOMENTE_LEITURA;
     else process.env.ESCRITORIO_SOMENTE_LEITURA = envRuntime;
     try {
-      const mod = (await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)) as { SOMENTE_LEITURA: boolean };
+      // Comentário único: o mesmo código importado de novo viria do cache de módulos (mesma URL).
+      const src = `${code}\n// ${Math.random()}`;
+      const mod = (await import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`)) as { SOMENTE_LEITURA: boolean };
       return mod.SOMENTE_LEITURA;
     } finally {
       if (antes === undefined) delete process.env.ESCRITORIO_SOMENTE_LEITURA;
@@ -143,13 +145,25 @@ describe('flag de build __ESCRITORIO_SOMENTE_LEITURA__', () => {
     }
   }
 
-  it('o build padrão grava true no bundle e o ambiente em execução não religa a escrita', async () => {
+  it('build padrão (sem flag): trava DESLIGADA, escrita como no Habblaud original', async () => {
     const code = await bundled({});
     expect(code).not.toContain('__ESCRITORIO_SOMENTE_LEITURA__');
-    expect(await valorEmExecucao(code, '0')).toBe(true);
+    expect(await valorEmExecucao(code, undefined)).toBe(false);
+    expect(await valorEmExecucao(code, '')).toBe(false);
+    expect(await valorEmExecucao(code, '0')).toBe(false);
+    // Sem flag no build, a flag explícita em execução ainda liga a trava.
+    expect(await valorEmExecucao(code, '1')).toBe(true);
   });
 
-  it('só um build com ESCRITORIO_SOMENTE_LEITURA=0 desliga a trava', async () => {
-    expect(await valorEmExecucao(await bundled({ ESCRITORIO_SOMENTE_LEITURA: '0' }), undefined)).toBe(false);
+  it('build com ESCRITORIO_SOMENTE_LEITURA=1 grava true e o ambiente em execução não religa a escrita', async () => {
+    const code = await bundled({ ESCRITORIO_SOMENTE_LEITURA: '1' });
+    expect(code).not.toContain('__ESCRITORIO_SOMENTE_LEITURA__');
+    expect(await valorEmExecucao(code, '0')).toBe(true);
+    expect(await valorEmExecucao(code, undefined)).toBe(true);
+  });
+
+  it('valores que não são "ligado" explícito não ligam a trava no build', async () => {
+    for (const v of ['0', 'false', 'off', 'qualquer', ''])
+      expect(await valorEmExecucao(await bundled({ ESCRITORIO_SOMENTE_LEITURA: v }), undefined)).toBe(false);
   });
 });
