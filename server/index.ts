@@ -33,6 +33,7 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { hermesUsoReader } from './sources/hermes-uso';
 import { createBuildReader } from './build';
 import { UpdateChecker } from './updates/checker';
 
@@ -195,6 +196,7 @@ const api = createApiHandler({
   codexLive,
   stats,
   updates,
+  hermesUso: hermesUsoReader(process.env, config.home),
 });
 
 const server = http.createServer();
