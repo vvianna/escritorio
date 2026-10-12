@@ -23,6 +23,7 @@ import { hasRunningShells } from './model';
 import { hasCodexPermission } from './provider';
 import { Notifier } from './notify';
 import { PredioPanel } from './predio';
+import { VistaPredio } from '../predio/vista';
 import { ConnectionBanner, EmptyState, Splash } from './overlays';
 import { focusPermission, nextPermissionAgent } from './permission';
 import { loadPrefs, safeLocalStorage, savePrefs, worldOptionsFrom, type UiPrefs } from './prefs';
@@ -149,6 +150,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const sound = new SoundControl(ctx);
   const notifier = new Notifier(ctx, sound.board);
   topbar = new TopBar(ctx);
+  // Vista Prédio (mapinha vertical do time) e o botão "Salas | Prédio" abaixo da barra (client/src/predio).
+  const vistaPredio = new VistaPredio(ctx, topbar.el);
   sidebar = new Sidebar(ctx);
   const terminal = new TerminalPanel(ctx);
   // Histórico de sessões (terminal): botão no grupo dos painéis da barra superior.
@@ -178,7 +181,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
 
   root.classList.add('ui-root');
-  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, predio.el, live, splash.el);
+  root.append(timelapse.vignette, topbar.el, vistaPredio.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, tip.el, settings.el, history.el, help.el, renamer.el, predio.el, live, splash.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -187,7 +190,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
   }));
   drawer.onLayoutChange = () => applyLayout();
 
-  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, predio];
+  const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, predio, vistaPredio];
 
   // ---------------------------------------------------------------- renderização agrupada por quadro
   let rafId = 0;
