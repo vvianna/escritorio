@@ -372,4 +372,13 @@ export interface ArtModule {
   footballLance?(t: number, seed: number): { lance: number; progress: number; right: boolean; period: number; goalAt: number };
   /** Avatar (cabeça + ombros) ampliado para a UI. `parts`: peças do personagem editado (ver AgentInfo.parts). */
   avatarCanvas(seed: number, opts?: { look?: 'f' | 'm'; sub?: boolean; scale?: number; parts?: AppearanceParts }): HTMLCanvasElement;
+  /**
+   * (Opcional, aditivo — vista Prédio) Cabine do elevador vista de cima: 3 × 2 tiles (48 × 32 px, todos
+   * opacos), porta no lado oeste. `door` 0 = fechada … 4 = aberta. Âncora: centro da borda de baixo.
+   */
+  elevatorCab?(door: number): Sprite;
+  /** (Opcional, aditivo) Poço do elevador: vão escuro com trilhos-guia. Contínuo entre chamadas vizinhas. */
+  drawShaft?(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
+  /** (Opcional, aditivo) Escada vista de cima (degraus e corrimão), só cenário. Contínua entre chamadas vizinhas. */
+  drawStairs?(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, seed: number): void;
 }

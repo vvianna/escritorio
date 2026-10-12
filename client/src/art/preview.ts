@@ -886,6 +886,63 @@ function avatars(): void {
   }
 }
 
+// ------------------------------------------------------------------ prédio (vista vertical)
+
+function predio(): void {
+  const s = section(
+    'predio',
+    'Prédio: cabine, poço e escada',
+    'Vista de cima, como as salas. Cabine do elevador (3 × 2 tiles, porta a oeste) nos 5 estados da porta; ao lado, a coluna com o poço (vão escuro com trilhos), a escada (degraus e corrimão, só cenário) e a cabine subindo e descendo com a porta abrindo em cada parada.',
+  );
+  const row = document.createElement('div');
+  row.className = 'row';
+  s.appendChild(row);
+  const cell = (name: string): HTMLElement => {
+    const c = document.createElement('div');
+    c.className = 'cell';
+    row.appendChild(c);
+    const span = document.createElement('span');
+    span.textContent = name;
+    c.appendChild(span);
+    return c;
+  };
+  const DOOR_PT = ['fechada', 'abrindo 1', 'abrindo 2', 'abrindo 3', 'aberta'];
+  for (let door = 0; door <= 4; door++) {
+    const c = cell(`porta ${door}: ${DOOR_PT[door]}`);
+    const cab = art.elevatorCab(door);
+    canvas(c, cab.canvas.width + 8, cab.canvas.height + 8, (ctx) => {
+      blit(ctx, cab, 4 + cab.ax, 4 + cab.ay);
+      anchorMark(ctx, 4 + cab.ax, 4 + cab.ay);
+    }, '#e9ecf1', 2);
+    c.insertBefore(c.lastChild as Node, c.firstChild);
+  }
+  // Coluna: poço (3 tiles) + escada (2 tiles), 3 andares de 4 tiles; a cabine para em cada andar.
+  const c = cell('coluna: poço + escada, cabine em viagem');
+  const H = 12 * TILE;
+  const stops = [0, 4 * TILE, 8 * TILE];
+  canvas(c, 5 * TILE, H, (ctx, t) => {
+    art.drawShaft(ctx, 0, 0, 3 * TILE, H);
+    art.drawStairs(ctx, 3 * TILE, 0, 2 * TILE, H, 7);
+    // Ciclo de 2,4 s por parada: 0,6 s viajando, 0,3 s abrindo, 1,2 s aberta, 0,3 s fechando.
+    const k = Math.floor(t / 2400);
+    const u = (t % 2400) / 2400;
+    const seq = [0, 1, 2, 1];
+    const from = stops[seq[k % seq.length]];
+    const to = stops[seq[(k + 1) % seq.length]];
+    let y = to;
+    let door = 0;
+    if (u < 0.25) {
+      const e = u / 0.25;
+      y = from + (to - from) * (e * e * (3 - 2 * e));
+    } else if (u < 0.375) door = Math.round(((u - 0.25) / 0.125) * 4);
+    else if (u < 0.875) door = 4;
+    else door = Math.round(((1 - u) / 0.125) * 4);
+    const cab = art.elevatorCab(door);
+    blit(ctx, cab, cab.ax, Math.round(y) + cab.ay);
+  }, '#e9ecf1', 2);
+  c.insertBefore(c.lastChild as Node, c.firstChild);
+}
+
 // ------------------------------------------------------------------ laço de animação
 
 sampleScene();
@@ -902,6 +959,7 @@ boards();
 windows();
 clockAndIcons();
 avatars();
+predio();
 
 function loop(t: number): void {
   for (const p of painters) {
