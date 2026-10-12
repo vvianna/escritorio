@@ -10,6 +10,7 @@ import { PixelBuf } from './core/pixbuf';
 import type { BufSprite } from './core/sprite';
 import { drawBoard, drawClock, drawScreen, drawWindowView } from './dynamic';
 import { normalizeFurniture, renderFurniture } from './furniture/index';
+import { CAB_H, CAB_W, PREDIO_PAL, drawShaft, drawStairs, renderElevatorCab } from './furniture/predio';
 import { ICON_NAMES, iconTemplates, renderIcon } from './icons';
 import { CHUNK_PX, floorChunk } from './surfaces/floor';
 import { southWallTile, wallFaceTile } from './surfaces/walls';
@@ -915,5 +916,107 @@ describe('editor do personagem (arte)', () => {
     const ok = { ...appearanceFromSeed(1), topStyle: 'tshirt' as const, top: '#e2604f' };
     expect(fitToOptions(ok).top).toBe('#e2604f');
     expect(fitToOptions({ ...ok, accessory: 'sunglasses', accessoryColor: '#e2604f' }).accessoryColor).toBe('#22232b');
+  });
+});
+
+describe('vista Prédio: cabine, poço e escada', () => {
+  /** Contexto falso que registra os fillRect com a cor usada. */
+  function fakeCtx() {
+    const rects: { c: string; x: number; y: number; w: number; h: number }[] = [];
+    const ctx = {
+      fillStyle: '',
+      fillRect(x: number, y: number, w: number, h: number) {
+        rects.push({ c: String(ctx.fillStyle), x, y, w, h });
+      },
+    } as unknown as CanvasRenderingContext2D;
+    return { ctx, rects };
+  }
+  const PAL = new Set<string>(Object.values(PREDIO_PAL));
+
+  it('cabine: 48 × 32 px opacos nos 5 estados da porta, todos diferentes', () => {
+    expect([CAB_W, CAB_H]).toEqual([3 * TILE, 2 * TILE]);
+    const seen = new Set<string>();
+    for (let door = 0; door <= 4; door++) {
+      const s = renderElevatorCab(door);
+      expect([s.buf.w, s.buf.h], `porta ${door}`).toEqual([48, 32]);
+      let opaque = 0;
+      for (let i = 3; i < s.buf.data.length; i += 4) if (s.buf.data[i] === 255) opaque++;
+      expect(opaque, `porta ${door}`).toBe(48 * 32);
+      expect([s.ax, s.ay]).toEqual([24, 32]);
+      seen.add(digest(s.buf.data));
+    }
+    expect(seen.size).toBe(5);
+    // Fora da faixa: prende em 0..4.
+    expect(digest(renderElevatorCab(-3).buf.data)).toBe(digest(renderElevatorCab(0).buf.data));
+    expect(digest(renderElevatorCab(9).buf.data)).toBe(digest(renderElevatorCab(4).buf.data));
+  });
+
+  it('cabine: porta só no lado oeste e mesmo metal da porta elevator', () => {
+    const closed = renderElevatorCab(0).buf;
+    const open = renderElevatorCab(4).buf;
+    const differ = (x: number, y: number) => {
+      const i = (y * closed.w + x) * 4;
+      return closed.data[i] !== open.data[i] || closed.data[i + 1] !== open.data[i + 1] || closed.data[i + 2] !== open.data[i + 2];
+    };
+    // Abrir a porta só muda as 3 colunas do oeste (e o botão aceso na parede norte, x < 9).
+    for (let y = 0; y < 32; y++) for (let x = 9; x < 48; x++) expect(differ(x, y), `${x},${y}`).toBe(false);
+    let west = 0;
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 3; x++) if (differ(x, y)) west++;
+    expect(west).toBeGreaterThan(40);
+    // Metal: moldura #aeb6c2 e folha #c9d0d9, como em furniture/wall.ts.
+    expect(countColor(closed, '#aeb6c2')).toBeGreaterThan(100);
+    expect(countColor(closed, '#c9d0d9')).toBeGreaterThan(20);
+    expect(countColor(open, '#c9d0d9')).toBe(0);
+  });
+
+  it('drawShaft e drawStairs: só fillRect dentro do retângulo e só cores da paleta', () => {
+    for (const r of [{ x: 560, y: 0, w: 48, h: 640 }, { x: 37, y: 13, w: 30, h: 21 }, { x: 0, y: 0, w: 8, h: 8 }]) {
+      for (const draw of [
+        (ctx: CanvasRenderingContext2D) => drawShaft(ctx, r.x, r.y, r.w, r.h),
+        (ctx: CanvasRenderingContext2D) => drawStairs(ctx, r.x, r.y, r.w, r.h, 7),
+      ]) {
+        const { ctx, rects } = fakeCtx();
+        draw(ctx);
+        expect(rects.length).toBeGreaterThan(0);
+        for (const q of rects) {
+          expect(q.w > 0 && q.h > 0).toBe(true);
+          expect(q.x >= r.x && q.y >= r.y && q.x + q.w <= r.x + r.w && q.y + q.h <= r.y + r.h, JSON.stringify(q)).toBe(true);
+          expect(PAL.has(q.c), q.c).toBe(true);
+        }
+        // O primeiro preenchimento cobre o retângulo todo (nada transparente por baixo).
+        const big = rects.some((q) => q.w * q.h >= (r.w - 4) * r.h);
+        expect(big).toBe(true);
+      }
+    }
+  });
+
+  it('drawShaft e drawStairs são contínuos: dois pedaços = um inteiro', () => {
+    const norm = (rects: { c: string; x: number; y: number; w: number; h: number }[]) => {
+      // Rasteriza num buffer para comparar o resultado, não a ordem dos fillRect.
+      const b = new PixelBuf(48, 96);
+      for (const q of rects) b.rect(q.x - 100, q.y - 40, q.w, q.h, q.c);
+      return digest(b.data);
+    };
+    for (const draw of [
+      (ctx: CanvasRenderingContext2D, y: number, h: number) => drawShaft(ctx, 100, y, 48, h),
+      (ctx: CanvasRenderingContext2D, y: number, h: number) => drawStairs(ctx, 100, y, 32, h, 3),
+    ]) {
+      const one = fakeCtx();
+      draw(one.ctx, 40, 96);
+      const two = fakeCtx();
+      draw(two.ctx, 40, 37);
+      draw(two.ctx, 77, 59);
+      expect(norm(two.rects)).toBe(norm(one.rects));
+    }
+  });
+
+  it('drawStairs: degraus variam com a semente; cores vêm de theme.ts', () => {
+    const a = fakeCtx();
+    const b = fakeCtx();
+    drawStairs(a.ctx, 0, 0, 32, 160, 1);
+    drawStairs(b.ctx, 0, 0, 32, 160, 2);
+    expect(JSON.stringify(a.rects)).not.toBe(JSON.stringify(b.rects));
+    const th = roomTheme(6);
+    for (const c of [th.carpet, th.carpet2, th.wall.base, th.wall.trim]) expect(PAL.has(c!), c).toBe(true);
   });
 });

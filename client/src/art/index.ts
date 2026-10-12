@@ -27,6 +27,7 @@ import { PixelBuf } from './core/pixbuf';
 import type { BufSprite } from './core/sprite';
 import { drawBoard, drawClock, drawScreen, drawWindowView, footballLance } from './dynamic';
 import { normalizeFurniture, renderFurniture } from './furniture/index';
+import { drawShaft, drawStairs, renderElevatorCab } from './furniture/predio';
 import { renderIcon } from './icons';
 import { CHUNK_PX, floorChunk } from './surfaces/floor';
 import { WALL_CAP_H, WALL_FACE_H, capColor, southWallTile, wallFaceTile } from './surfaces/walls';
@@ -36,6 +37,7 @@ import { roomTheme as roomThemePure } from './theme';
 export * from './api';
 export { hash32 };
 export { drawBoard, drawClock, drawScreen, drawWindowView, footballLance };
+export { drawShaft, drawStairs };
 export { editorConflict, editorOptions, fitToOptions, type EditorOptions } from './character/appearance';
 
 // ------------------------------------------------------------------ canvas e cache
@@ -145,6 +147,14 @@ export function furnitureSprites(kind: FurnitureKind, variant?: string, state?: 
 
 export function iconSprite(name: IconName): Sprite {
   return iconCache.get(name, () => toSprite(renderIcon(name)));
+}
+
+const cabCache = new Cache<Sprite>(8);
+
+/** Cabine do elevador da vista Prédio (3 × 2 tiles, porta a oeste); `door` 0 = fechada … 4 = aberta. */
+export function elevatorCab(door: number): Sprite {
+  const st = Math.max(0, Math.min(4, Math.round(door)));
+  return cabCache.get(String(st), () => toSprite(renderElevatorCab(st)));
 }
 
 export function roomTheme(seed: number): RoomTheme {
@@ -328,6 +338,9 @@ const _contract: ArtModule = {
   roomTheme,
   iconSprite,
   avatarCanvas,
+  elevatorCab,
+  drawShaft,
+  drawStairs,
 };
 void _contract;
 
