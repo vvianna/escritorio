@@ -1,6 +1,6 @@
 import usoReal from './fixtures/hermes-uso.json';
 import { describe, expect, it } from 'vitest';
-import { exemploPredio, linhasUso, montarPredio, salaDe, tokensCurto, type AgentePredio, type UsoHermes } from './predio-model';
+import { exemploPredio, linhaCotas, linhasUso, montarPredio, salaDe, tokensCurto, type AgentePredio, type UsoHermes } from './predio-model';
 
 const andarDe = (v: ReturnType<typeof montarPredio>, perfil: string) =>
   v.andares.find((a) => a.salas.some((s) => s.ocupantes.some((o) => o.perfil === perfil)))?.id;
@@ -80,7 +80,7 @@ describe('prédio', () => {
       ],
       personas: [],
     });
-    expect(l.map((x) => x.rotulo)).toEqual(['Claude', 'ChatGPT', 'Gemini', 'Grok', 'nous']);
+    expect(l.map((x) => x.rotulo)).toEqual(['Claude', 'ChatGPT', 'Antigravity (Gemini)', 'Grok', 'nous']);
     expect(l[0]).toEqual({ rotulo: 'Claude', cincoHoras: 10, seteDias: 150, custo7dUsd: 2.5 });
     expect(linhasUso(null).every((x) => x.seteDias === 0)).toBe(true);
   });
@@ -88,11 +88,11 @@ describe('prédio', () => {
   it('JSON real do /api/hermes/uso: cada provedor cai na sua assinatura', () => {
     const uso = usoReal as UsoHermes;
     const l = Object.fromEntries(linhasUso(uso).map((x) => [x.rotulo, x]));
-    expect(Object.keys(l)).toEqual(['Claude', 'ChatGPT', 'Gemini', 'Grok', 'Desconhecido']);
+    expect(Object.keys(l)).toEqual(['Claude', 'ChatGPT', 'Antigravity (Gemini)', 'Grok', 'Desconhecido']);
     expect(l.Claude!.seteDias).toBe(15_655_190 + 596); // anthropic + fallback_chain[0](anthropic)
     expect(l.Claude!.cincoHoras).toBe(375_193);
     expect(l.ChatGPT!.seteDias).toBe(6_499_737 + 677_392); // openai-codex + openai-api
-    expect(l.Gemini!.seteDias).toBe(8_692_711); // antigravity-agy
+    expect(l['Antigravity (Gemini)']!.seteDias).toBe(8_692_711); // antigravity-agy
     expect(l.Grok!.seteDias).toBe(26_472_900); // xai-oauth
   });
 
@@ -117,6 +117,20 @@ describe('prédio', () => {
     expect(janelas).toContain('5 h');
     expect(janelas).toContain('7 dias');
     expect(janelas.some((j) => /cincoHoras|seteDias/.test(j))).toBe(false);
+  });
+
+  it('cota do Antigravity rotulada e traduzida (JSON real)', () => {
+    const uso = usoReal as UsoHermes;
+    expect(linhaCotas(montarPredio([], uso, 'ok').cotas)).toBe(
+      'Cota do Antigravity livre: Claude/GPT 100% (5 h), 100% (7 d) · Gemini 100% (5 h), 85% (7 d)',
+    );
+    expect(linhaCotas([])).toBeUndefined();
+  });
+
+  it('JSON real: Antigravity rotulado como "Antigravity (Gemini)" e Desconhecido com dica', () => {
+    const l = Object.fromEntries(linhasUso(usoReal as UsoHermes).map((x) => [x.rotulo, x]));
+    expect(l['Antigravity (Gemini)']!.dica).toBeUndefined();
+    expect(l.Desconhecido).toMatchObject({ seteDias: expect.any(Number), dica: 'sessões sem provedor registrado' });
   });
 
   it('perfil à toa mostra o último modelo usado na sala', () => {
