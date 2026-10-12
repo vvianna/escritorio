@@ -1,5 +1,9 @@
 // Fonte "sessões do Hermes" (fase 4 do time-de-agentes, item 4.3): uso por assinatura e personas.
 //
+// No container a pasta profiles/ do Hermes NÃO é montada (tem .env/auth.json): tools/copiar-uso.sh roda no host
+// (cron do Hermes, 2 em 2 min) e grava só o metadado em ~/.cache/escritorio/uso.jsonl; aqui lerUsoJsonl lê esse
+// arquivo (ESCRITORIO_USO). Fora do container, lerUsoBancos lê os state.db direto, com as mesmas colunas.
+//
 // Lê, SÓ LEITURA (SQLite aberto com readOnly, o mesmo que `mode=ro`), os bancos de sessão dos perfis:
 //   <HERMES_ROOT>/state.db                 -> perfil "default"
 //   <HERMES_ROOT>/profiles/<perfil>/state.db
@@ -98,6 +102,8 @@ export interface UsoHermes {
   personas: PersonaHermes[];
   /** Bancos que não abriram (perfil + motivo curto), para o painel avisar em vez de mostrar zero calado. */
   falhas: { perfil: string; erro: string }[];
+  /** Quando o uso.jsonl foi gerado no host (epoch ms), se a leitura veio dele. */
+  copiadoEm?: number;
 }
 
 /** billing_provider -> nome da assinatura no painel. */
@@ -169,17 +175,53 @@ function ordena(mapa: Map<string, UsoProvedor>): UsoProvedor[] {
     .sort((a, b) => b.total - a.total || a.provedor.localeCompare(b.provedor));
 }
 
-/**
- * Uso por assinatura nas janelas de 5 h e 7 dias + personas, lendo os bancos indicados.
- * Atribuição à janela pelo `last_seen` da linha (sessão × modelo): os tokens são o acumulado daquela linha.
- */
-export function lerUsoBancos(bancos: BancoPerfil[], agora = Date.now()): Omit<UsoHermes, 'antigravity'> {
+/** O que se leu de um perfil: linhas de uso (sessão × modelo) e as duas sessões mais recentes (qualquer / Telegram). */
+interface PerfilLido {
+  perfil: string;
+  linhas: Record<string, unknown>[];
+  ultima?: Record<string, unknown>;
+  tg?: Record<string, unknown>;
+}
+
+/** Junta o que se leu (dos bancos ou do uso.jsonl) nas janelas de 5 h e 7 dias + personas. */
+function montaUso(lidos: PerfilLido[], falhas: UsoHermes['falhas'], agora: number): Omit<UsoHermes, 'antigravity'> {
   const cinco = new Map<string, UsoProvedor>();
   const sete = new Map<string, UsoProvedor>();
   const personas: PersonaHermes[] = [];
+  const corteSete = agora - SETE_DIAS_MS;
+  const corteCinco = agora - CINCO_HORAS_MS;
+  const quando = (l?: Record<string, unknown>) => segParaMs(l?.last_activity_at) ?? segParaMs(l?.started_at);
+
+  for (const { perfil, linhas, ultima, tg } of lidos) {
+    for (const l of linhas) {
+      const visto = segParaMs(l.last_seen);
+      if (visto === undefined || visto < corteSete) continue;
+      acumula(sete, perfil, l);
+      if (visto >= corteCinco) acumula(cinco, perfil, l);
+    }
+    const tgQuando = quando(tg);
+    const persona: PersonaHermes = {
+      perfil,
+      conversando: tgQuando !== undefined && agora - tgQuando < CONVERSANDO_MS && tg?.ended_at == null,
+    };
+    const uq = quando(ultima);
+    if (uq !== undefined) persona.ultimaAtividade = uq;
+    if (typeof ultima?.source === 'string') persona.ultimaFonte = ultima.source;
+    if (typeof ultima?.model === 'string' && ultima.model) persona.modelo = ultima.model;
+    personas.push(persona);
+  }
+  return { geradoEm: agora, cincoHoras: ordena(cinco), seteDias: ordena(sete), personas, falhas };
+}
+
+/**
+ * Uso por assinatura nas janelas de 5 h e 7 dias + personas, lendo os bancos indicados (fora do container: no
+ * container a pasta profiles/ não é montada e a fonte lê o uso.jsonl de tools/copiar-uso.sh, ver lerUsoJsonl).
+ * Atribuição à janela pelo `last_seen` da linha (sessão × modelo): os tokens são o acumulado daquela linha.
+ */
+export function lerUsoBancos(bancos: BancoPerfil[], agora = Date.now()): Omit<UsoHermes, 'antigravity'> {
+  const lidos: PerfilLido[] = [];
   const falhas: UsoHermes['falhas'] = [];
   const corteSete = (agora - SETE_DIAS_MS) / 1000;
-  const corteCinco = agora - CINCO_HORAS_MS;
 
   for (const { perfil, arquivo } of bancos) {
     let db: DatabaseSync | undefined;
@@ -187,24 +229,9 @@ export function lerUsoBancos(bancos: BancoPerfil[], agora = Date.now()): Omit<Us
       db = new DatabaseSync(arquivo, { readOnly: true });
       const temUso = !!db.prepare(SQL_TEM_TABELA).get('session_model_usage');
       const linhas = db.prepare(temUso ? SQL_USO : SQL_USO_SESSOES).all(corteSete) as Record<string, unknown>[];
-      for (const l of linhas) {
-        acumula(sete, perfil, l);
-        const visto = segParaMs(l.last_seen);
-        if (visto !== undefined && visto >= corteCinco) acumula(cinco, perfil, l);
-      }
       const ultima = db.prepare(SQL_ULTIMA).get() as Record<string, unknown> | undefined;
       const tg = db.prepare(SQL_ULTIMA_TELEGRAM).get() as Record<string, unknown> | undefined;
-      const quando = (l?: Record<string, unknown>) => segParaMs(l?.last_activity_at) ?? segParaMs(l?.started_at);
-      const tgQuando = quando(tg);
-      const persona: PersonaHermes = {
-        perfil,
-        conversando: tgQuando !== undefined && agora - tgQuando < CONVERSANDO_MS && tg?.ended_at == null,
-      };
-      const uq = quando(ultima);
-      if (uq !== undefined) persona.ultimaAtividade = uq;
-      if (typeof ultima?.source === 'string') persona.ultimaFonte = ultima.source;
-      if (typeof ultima?.model === 'string' && ultima.model) persona.modelo = ultima.model;
-      personas.push(persona);
+      lidos.push({ perfil, linhas, ultima, tg });
     } catch (err) {
       falhas.push({ perfil, erro: (err instanceof Error ? err.message : String(err)).slice(0, 120) });
     } finally {
@@ -215,7 +242,75 @@ export function lerUsoBancos(bancos: BancoPerfil[], agora = Date.now()): Omit<Us
       }
     }
   }
-  return { geradoEm: agora, cincoHoras: ordena(cinco), seteDias: ordena(sete), personas, falhas };
+  return montaUso(lidos, falhas, agora);
+}
+
+/** Cópia mais velha que isto (cron parado) vira aviso no painel. */
+export const USO_VELHO_MS = 10 * 60_000;
+/** Nome que aparece em `falhas` para problemas do próprio uso.jsonl. */
+export const PERFIL_COPIA = 'uso.jsonl';
+
+/** Campos aceitos por tipo de linha do uso.jsonl (o resto é descartado, mesmo que venha no arquivo). */
+const CAMPOS_USO = ['billing_provider', 'model', 'input_tokens', 'output_tokens', 'estimated_cost_usd', 'last_seen'] as const;
+const CAMPOS_SESSAO = COLUNAS_SESSOES;
+
+function so(campos: readonly string[], v: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const c of campos) if (c in v) out[c] = v[c];
+  return out;
+}
+
+/**
+ * Lê o uso.jsonl gerado no host por tools/copiar-uso.sh (formato no cabeçalho do script) e devolve o mesmo que
+ * lerUsoBancos. Arquivo ausente, ilegível ou velho (> USO_VELHO_MS) entra em `falhas` como PERFIL_COPIA.
+ */
+export function lerUsoJsonl(arquivo: string, agora = Date.now()): Omit<UsoHermes, 'antigravity'> & { copiadoEm?: number } {
+  let texto: string;
+  try {
+    texto = readFileSync(arquivo, 'utf8');
+  } catch (err) {
+    const codigo = (err as NodeJS.ErrnoException).code;
+    const erro = codigo === 'ENOENT' ? 'cópia não encontrada (tools/copiar-uso.sh rodou no host?)' : `cópia ilegível (${codigo ?? 'erro'})`;
+    return { ...montaUso([], [{ perfil: PERFIL_COPIA, erro }], agora) };
+  }
+  const porPerfil = new Map<string, PerfilLido>();
+  const falhas: UsoHermes['falhas'] = [];
+  let copiadoEm: number | undefined;
+  const lido = (perfil: string): PerfilLido => {
+    let p = porPerfil.get(perfil);
+    if (!p) porPerfil.set(perfil, (p = { perfil, linhas: [] }));
+    return p;
+  };
+  for (const bruta of texto.split('\n')) {
+    if (!bruta.trim()) continue;
+    let v: Record<string, unknown>;
+    try {
+      const j = JSON.parse(bruta) as unknown;
+      if (!j || typeof j !== 'object' || Array.isArray(j)) continue;
+      v = j as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (v.tipo === 'meta') {
+      copiadoEm = segParaMs(v.gerado_em);
+      continue;
+    }
+    const perfil = typeof v.perfil === 'string' && NOME_OK.test(v.perfil) ? v.perfil : undefined;
+    if (!perfil) continue;
+    if (v.tipo === 'uso') lido(perfil).linhas.push(so(CAMPOS_USO, v));
+    else if (v.tipo === 'sessao' && v.qual === 'ultima') lido(perfil).ultima = so(CAMPOS_SESSAO, v);
+    else if (v.tipo === 'sessao' && v.qual === 'telegram') lido(perfil).tg = so(CAMPOS_SESSAO, v);
+    else if (v.tipo === 'falha') falhas.push({ perfil, erro: String(v.erro ?? '').slice(0, 120) });
+  }
+  if (copiadoEm === undefined) falhas.push({ perfil: PERFIL_COPIA, erro: 'cópia sem cabeçalho (incompleta?)' });
+  else if (agora - copiadoEm > USO_VELHO_MS) {
+    falhas.push({ perfil: PERFIL_COPIA, erro: `cópia de ${Math.round((agora - copiadoEm) / 60_000)} min atrás (cron do copiar-uso parado?)` });
+  }
+  // Perfis com falha não viram persona (igual a lerUsoBancos).
+  const comFalha = new Set(falhas.map((f) => f.perfil));
+  const lidos = [...porPerfil.values()].filter((p) => !comFalha.has(p.perfil));
+  const out = montaUso(lidos, falhas, agora);
+  return copiadoEm === undefined ? out : { ...out, copiadoEm };
 }
 
 function janelaAgy(texto: string): string {
@@ -258,8 +353,10 @@ export function lerCotaAgy(arquivo: string | undefined): CotaAgy[] {
 }
 
 export interface OpcoesUsoHermes {
-  /** Raiz do Hermes (no container: /hermes, montada read-only). */
-  raiz: string;
+  /** Raiz do Hermes: lê os state.db direto (fora do container). Ignorada quando há `usoJsonl`. */
+  raiz?: string;
+  /** uso.jsonl de tools/copiar-uso.sh (no container: /cache/escritorio/uso.jsonl, pasta montada read-only). */
+  usoJsonl?: string;
   /** Caminho do agy-cota.tsv (opcional). */
   cotaAgy?: string;
   /** Cache em ms (padrão 15 s): o painel pode pedir à vontade sem martelar os bancos. */
@@ -268,14 +365,17 @@ export interface OpcoesUsoHermes {
 }
 
 /**
- * Liga a fonte a partir do ambiente: HERMES_ROOT (obrigatória; sem ela a rota responde 404) e
- * ESCRITORIO_AGY_COTA (padrão <home>/.local/state/agy-cota.tsv; no container, monte o arquivo read-only).
+ * Liga a fonte a partir do ambiente (sem nenhuma das duas a rota responde 404):
+ * - ESCRITORIO_USO: caminho do uso.jsonl copiado no host (é o que o container usa; a pasta profiles/ não entra lá);
+ * - senão HERMES_ROOT: lê os state.db direto (rodando fora do container).
+ * ESCRITORIO_AGY_COTA: padrão <home>/.local/state/agy-cota.tsv (no container, a cópia em /cache/escritorio).
  */
 export function hermesUsoReader(env: NodeJS.ProcessEnv, home: string): (() => UsoHermes) | undefined {
+  const usoJsonl = env.ESCRITORIO_USO?.trim();
   const raiz = env.HERMES_ROOT?.trim();
-  if (!raiz) return undefined;
+  if (!usoJsonl && !raiz) return undefined;
   const cotaAgy = env.ESCRITORIO_AGY_COTA?.trim() || join(home, '.local', 'state', 'agy-cota.tsv');
-  return criarLeitorUso({ raiz, cotaAgy });
+  return usoJsonl ? criarLeitorUso({ usoJsonl, cotaAgy }) : criarLeitorUso({ raiz, cotaAgy });
 }
 
 /** Leitor com cache curto, para a rota GET /api/hermes/uso. */
@@ -286,7 +386,10 @@ export function criarLeitorUso(opts: OpcoesUsoHermes): () => UsoHermes {
   return () => {
     const t = agora();
     if (ultimo && t - ultimo.geradoEm < cacheMs) return ultimo;
-    ultimo = { ...lerUsoBancos(descobrirBancos(opts.raiz), t), antigravity: lerCotaAgy(opts.cotaAgy) };
+    const uso = opts.usoJsonl
+      ? lerUsoJsonl(opts.usoJsonl, t)
+      : lerUsoBancos(opts.raiz ? descobrirBancos(opts.raiz) : [], t);
+    ultimo = { ...uso, antigravity: lerCotaAgy(opts.cotaAgy) };
     return ultimo;
   };
 }

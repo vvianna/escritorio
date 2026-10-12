@@ -1,7 +1,8 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsService } from '../accounts/service';
@@ -17,6 +18,7 @@ import {
   descobrirBancos,
   hermesUsoReader,
   lerUsoBancos,
+  lerUsoJsonl,
   parseCotaAgy,
   rotuloProvedor,
 } from './hermes-uso';
@@ -208,6 +210,121 @@ describe('uso por assinatura (5 h / 7 dias por billing_provider)', () => {
   it('sem HERMES_ROOT a fonte fica desligada', () => {
     expect(hermesUsoReader({}, '/home/x')).toBeUndefined();
     expect(hermesUsoReader({ HERMES_ROOT: raiz }, '/home/x')).toBeTypeOf('function');
+    expect(hermesUsoReader({ ESCRITORIO_USO: join(raiz, 'uso.jsonl') }, '/home/x')).toBeTypeOf('function');
+  });
+});
+
+const SCRIPT = resolve(__dirname, '..', '..', 'tools', 'copiar-uso.sh');
+const temSqlite3 = ['/home/linuxbrew/.linuxbrew/bin/sqlite3', '/usr/bin/sqlite3', '/usr/local/bin/sqlite3'].some((c) => existsSync(c)) ||
+  spawnSync('sh', ['-c', 'command -v sqlite3'], { encoding: 'utf8' }).status === 0;
+
+describe('uso.jsonl (tools/copiar-uso.sh no host -> container)', () => {
+  let raiz: string;
+  let cache: string;
+  let agy: string;
+  let cleanup: () => void;
+  beforeEach(() => {
+    const t = tempDir('hermes-uso-');
+    raiz = join(t.dir, 'hermes');
+    cache = join(t.dir, 'cache');
+    agy = join(t.dir, 'agy-cota.tsv');
+    cleanup = t.cleanup;
+    montaRaiz(raiz);
+    // segredos do perfil que nunca podem ir para a cópia
+    writeFileSync(join(raiz, 'profiles', 'dev', '.env'), SEGREDO);
+    writeFileSync(join(raiz, 'profiles', 'dev', 'auth.json'), SEGREDO);
+    writeFileSync(agy, '2026-10-11 20:06\tGemini Models\tWeekly Limit Remaining\t98%\t2026-10-18T22:54:20Z\n');
+  });
+  afterEach(() => cleanup());
+
+  function copia(agora = AGORA): string {
+    return execFileSync('bash', [SCRIPT], {
+      env: { ...process.env, ESCRITORIO_HERMES_DIR: raiz, ESCRITORIO_CACHE_DIR: cache, ESCRITORIO_AGY_COTA: agy, ESCRITORIO_AGORA: String(Math.floor(agora / 1000)) },
+      encoding: 'utf8',
+    });
+  }
+
+  it('o script não cita colunas/tabelas proibidas nem os arquivos de segredo', () => {
+    const fonte = readFileSync(SCRIPT, 'utf8');
+    const semComentario = fonte.replace(/^\s*#.*$/gm, '');
+    for (const p of PROIBIDAS) expect(semComentario, `"${p}" apareceu no script`).not.toMatch(new RegExp(`\\b${p}\\b`, 'i'));
+    expect(semComentario).not.toMatch(/\.env\b|auth\.json|config\.yaml/);
+    expect(semComentario).toMatch(/mode=ro/);
+    expect(semComentario).not.toMatch(/SELECT\s+\*/i);
+  });
+
+  it.skipIf(!temSqlite3)('gera só metadado, calado, e o segredo não sai', () => {
+    expect(copia()).toBe('');
+    const texto = readFileSync(join(cache, 'uso.jsonl'), 'utf8');
+    expect(texto).not.toContain(SEGREDO);
+    const linhas = texto.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(linhas[0]).toEqual({ tipo: 'meta', gerado_em: Math.floor(AGORA / 1000), versao: 1 });
+    const permitidas: Record<string, string[]> = {
+      uso: ['tipo', 'perfil', 'billing_provider', 'model', 'input_tokens', 'output_tokens', 'estimated_cost_usd', 'last_seen'],
+      sessao: ['tipo', 'qual', 'perfil', 'source', 'model', 'started_at', 'ended_at', 'last_activity_at'],
+      falha: ['tipo', 'perfil', 'erro'],
+      meta: ['tipo', 'gerado_em', 'versao'],
+    };
+    for (const l of linhas) {
+      const ok = permitidas[String(l.tipo)];
+      expect(ok, JSON.stringify(l)).toBeDefined();
+      for (const k of Object.keys(l)) expect(ok, `${k} em ${String(l.tipo)}`).toContain(k);
+    }
+    // a linha de 8 dias atrás nem é copiada
+    expect(linhas.filter((l) => l.tipo === 'uso' && l.input_tokens === 9999)).toHaveLength(0);
+    expect(linhas.filter((l) => l.tipo === 'falha').map((l) => l.perfil)).toEqual(['quebrado']);
+    expect(readFileSync(join(cache, 'agy-cota.tsv'), 'utf8')).toContain('Gemini Models');
+    expect(statSync(join(cache, 'uso.jsonl')).mode & 0o777).toBe(0o644);
+    // sem lixo de temporário na pasta montada
+    expect(readdirSync(cache).sort()).toEqual(['agy-cota.tsv', 'uso.jsonl']);
+  });
+
+  it.skipIf(!temSqlite3)('lerUsoJsonl dá o mesmo que ler os bancos direto', () => {
+    copia();
+    const direto = lerUsoBancos(descobrirBancos(raiz), AGORA + 60_000);
+    const copiado = lerUsoJsonl(join(cache, 'uso.jsonl'), AGORA + 60_000);
+    expect(copiado.cincoHoras).toEqual(direto.cincoHoras);
+    expect(copiado.seteDias).toEqual(direto.seteDias);
+    expect(copiado.personas).toEqual(direto.personas);
+    expect(copiado.falhas.map((f) => f.perfil)).toEqual(direto.falhas.map((f) => f.perfil));
+    expect(copiado.copiadoEm).toBe(Math.floor(AGORA / 1000) * 1000);
+  });
+
+  it.skipIf(!temSqlite3)('leitor pelo ambiente (ESCRITORIO_USO) usa a cópia e a cota copiada', () => {
+    copia();
+    let t = AGORA + 60_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => t);
+    try {
+      const ler = hermesUsoReader({ ESCRITORIO_USO: join(cache, 'uso.jsonl'), ESCRITORIO_AGY_COTA: join(cache, 'agy-cota.tsv') }, '/home/x');
+      const out = ler!();
+      expect(out.cincoHoras.find((u) => u.provedor === 'anthropic')?.total).toBe(1530);
+      expect(out.antigravity).toHaveLength(1);
+      t += 20 * 60_000; // cron parado: cópia velha vira aviso
+      expect(ler!().falhas).toContainEqual({ perfil: 'uso.jsonl', erro: expect.stringMatching(/min atrás/) });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('cópia ausente ou estranha não derruba: vira falha, campos extras são descartados', () => {
+    expect(lerUsoJsonl(join(cache, 'nao-existe.jsonl'), AGORA).falhas).toEqual([{ perfil: 'uso.jsonl', erro: expect.stringMatching(/não encontrada/) }]);
+    mkdirSync(cache, { recursive: true });
+    const arq = join(cache, 'uso.jsonl');
+    writeFileSync(
+      arq,
+      [
+        JSON.stringify({ tipo: 'meta', gerado_em: AGORA / 1000 }),
+        'lixo {',
+        JSON.stringify({ tipo: 'uso', perfil: '../x', billing_provider: 'anthropic', input_tokens: 5, last_seen: AGORA / 1000 }),
+        JSON.stringify({ tipo: 'uso', perfil: 'dev', billing_provider: 'anthropic', input_tokens: 5, output_tokens: 1, last_seen: AGORA / 1000, [PROIBIDAS[2]]: SEGREDO }),
+        JSON.stringify({ tipo: 'sessao', qual: 'ultima', perfil: 'dev', source: 'cli', started_at: AGORA / 1000, [PROIBIDAS[0]]: SEGREDO }),
+      ].join('\n'),
+    );
+    const out = lerUsoJsonl(arq, AGORA);
+    expect(out.falhas).toEqual([]);
+    expect(out.cincoHoras).toMatchObject([{ provedor: 'anthropic', total: 6, perfis: { dev: 6 } }]);
+    expect(out.personas).toEqual([{ perfil: 'dev', conversando: false, ultimaAtividade: AGORA, ultimaFonte: 'cli' }]);
+    expect(JSON.stringify(out)).not.toContain(SEGREDO);
   });
 });
 

@@ -312,7 +312,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     }
     if (path === '/api/hermes/uso') {
       if (!isRead) methodNotAllowed(res, 'GET');
-      else if (!deps.hermesUso) sendJson(res, 404, { error: 'fonte do Hermes desligada (defina HERMES_ROOT)' });
+      else if (!deps.hermesUso) sendJson(res, 404, { error: 'fonte do Hermes desligada (defina ESCRITORIO_USO ou HERMES_ROOT)' });
       else sendJson(res, 200, deps.hermesUso());
       return true;
     }

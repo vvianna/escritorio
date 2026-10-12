@@ -180,6 +180,28 @@ describe('readBoard', () => {
     }
   });
 
+  it('abre WAL sem -shm numa pasta só leitura (montagem :ro da pasta kanban/)', () => {
+    fixtureRoot(tmp.dir);
+    const dir = join(tmp.dir, 'kanban', 'boards', 'openhealth');
+    const path = join(dir, 'kanban.db');
+    const w = new DatabaseSync(path);
+    w.exec('PRAGMA journal_mode=WAL');
+    w.close(); // último a fechar: aplica e apaga -wal/-shm
+    chmodSync(path, 0o444);
+    chmodSync(dir, 0o555);
+    try {
+      const db = openReadOnly(path);
+      try {
+        expect(readBoard(db, 'openhealth', NOW).cards.length).toBeGreaterThan(0);
+        expect(() => db.exec("UPDATE tasks SET title='x'")).toThrow();
+      } finally {
+        db.close();
+      }
+    } finally {
+      chmodSync(dir, 0o755);
+    }
+  });
+
   it('firstLine corta o rótulo e a linha', () => {
     expect(firstLine('O que travou: a porta.\nVocê faz: x')).toBe('a porta.');
     expect(firstLine('\n\n  só isto ')).toBe('só isto');
