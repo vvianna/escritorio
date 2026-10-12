@@ -19,7 +19,7 @@ import { HermesSlots, loadNomes, workerName } from './hermes-vagas';
 const SCHEMA = `
 CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT, assignee TEXT, status TEXT NOT NULL,
   created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  last_heartbeat_at INTEGER, current_run_id INTEGER, block_kind TEXT);
+  last_heartbeat_at INTEGER, current_run_id INTEGER, block_kind TEXT, created_by TEXT);
 CREATE TABLE task_events (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, run_id INTEGER, kind TEXT NOT NULL,
   payload TEXT, created_at INTEGER NOT NULL);
 CREATE TABLE task_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, profile TEXT, status TEXT NOT NULL,
@@ -39,6 +39,7 @@ interface Task {
   completed_at?: number;
   consecutive_failures?: number;
   last_heartbeat_at?: number;
+  created_by?: string | null;
 }
 
 function makeDb(path: string, tasks: Task[], events: Array<[string, string, unknown, number]> = [], wal = false): void {
@@ -47,10 +48,10 @@ function makeDb(path: string, tasks: Task[], events: Array<[string, string, unkn
   if (wal) db.exec('PRAGMA journal_mode=WAL');
   db.exec(SCHEMA);
   const ins = db.prepare(
-    'INSERT INTO tasks (id, title, status, assignee, created_at, started_at, completed_at, consecutive_failures, last_heartbeat_at) VALUES (?,?,?,?,?,?,?,?,?)',
+    'INSERT INTO tasks (id, title, status, assignee, created_at, started_at, completed_at, consecutive_failures, last_heartbeat_at, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)',
   );
   for (const t of tasks) {
-    ins.run(t.id, t.title, t.status, t.assignee ?? null, t.created_at ?? S - 3600, t.started_at ?? null, t.completed_at ?? null, t.consecutive_failures ?? 0, t.last_heartbeat_at ?? null);
+    ins.run(t.id, t.title, t.status, t.assignee ?? null, t.created_at ?? S - 3600, t.started_at ?? null, t.completed_at ?? null, t.consecutive_failures ?? 0, t.last_heartbeat_at ?? null, t.created_by ?? null);
   }
   const ev = db.prepare('INSERT INTO task_events (task_id, kind, payload, created_at) VALUES (?,?,?,?)');
   for (const [tid, kind, payload, at] of events) ev.run(tid, kind, payload === null ? null : JSON.stringify(payload), at);
@@ -304,6 +305,58 @@ describe('readBoard', () => {
     expect(internalBlock('default', undefined)).toBeUndefined();
     expect(internalBlock('default', 'O que travou: conflito com a origin/main no PR #3')).toBe('conflito com a main');
     expect(internalBlock('default', 'O que travou: preciso que você escolha a cor.')).toBeUndefined();
+  });
+
+  it('criadoPor: só quando created_by é nome de perfil; banco aberto só leitura', () => {
+    const path = join(tmp.dir, 'kanban.db');
+    const criadores: Record<string, string | null> = { ok: 'vini', nulo: null, vazio: '', tg: 'telegram:123', esp: 'a b', dig: '9x' };
+    makeDb(
+      path,
+      Object.entries(criadores).map(([k, c]) => ({ id: `t_${k}`, title: k, status: 'running', assignee: `p_${k}`, started_at: S - 60, last_heartbeat_at: S - 30, created_by: c })),
+    );
+    const db = openReadOnly(path);
+    const by = pickCards(readBoard(db, 'default', NOW).cards);
+    expect(() => db.exec("UPDATE tasks SET created_by='x'")).toThrow(/readonly/i);
+    db.close();
+    expect(by.get('p_ok')).toMatchObject({ state: 'running', criadoPor: 'vini' });
+    for (const k of ['nulo', 'vazio', 'tg', 'esp', 'dig']) {
+      expect(by.get(`p_${k}`), k).toMatchObject({ state: 'running' });
+      expect(by.get(`p_${k}`), k).not.toHaveProperty('criadoPor');
+    }
+  });
+
+  it('criadoPor chega ao personagem; entrega de cartão fechado também lê quem criou', () => {
+    makeDb(
+      join(tmp.dir, 'kanban.db'),
+      [
+        { id: 't_b', title: 'Pedido do produto', status: 'blocked', assignee: 'architect', created_by: 'vini' },
+        { id: 't_d', title: 'Fechado', status: 'done', assignee: 'reviewer', created_by: 'architect', completed_at: S - 30 },
+        { id: 't_x', title: 'Do Telegram', status: 'blocked', assignee: 'qa', created_by: 'telegram:123' },
+      ],
+      [
+        ['t_b', 'blocked', { reason: 'O que travou: escolher.' }, S - 120],
+        ['t_d', 'review_requested', { implementer: 'dev', reviewer: 'reviewer' }, S - 60],
+        ['t_x', 'blocked', { reason: 'O que travou: outra.' }, S - 120],
+      ],
+    );
+    const db = openReadOnly(join(tmp.dir, 'kanban.db'));
+    const by = pickCards(readBoard(db, 'default', NOW).cards);
+    db.close();
+    expect(by.get('dev')).toMatchObject({ state: 'delivering', taskId: 't_d', criadoPor: 'architect' });
+    const office = new Office({
+      names: new NameStore(null),
+      version: '9.9.9',
+      startedAt: NOW,
+      accounts: () => [],
+      sources: () => [],
+      accountName: () => undefined,
+      now: () => NOW,
+    });
+    new HermesSource({ office, root: tmp.dir, now: () => NOW }).poll();
+    const byName = new Map(office.list().map((a) => [a.name, a]));
+    expect(byName.get('architect')!.hermes).toMatchObject({ state: 'blocked', criadoPor: 'vini' });
+    expect(byName.get('qa')!.hermes).toMatchObject({ state: 'blocked' });
+    expect(byName.get('qa')!.hermes).not.toHaveProperty('criadoPor');
   });
 
   it('firstLine corta o rótulo e a linha', () => {
