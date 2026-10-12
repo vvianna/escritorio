@@ -129,7 +129,7 @@ describe('cadeiras: leitura e casamento cartão → sessão', () => {
 const SCHEMA = `
 CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT, assignee TEXT, status TEXT NOT NULL,
   created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, consecutive_failures INTEGER NOT NULL DEFAULT 0,
-  last_heartbeat_at INTEGER, current_run_id INTEGER, block_kind TEXT);
+  last_heartbeat_at INTEGER, current_run_id INTEGER, block_kind TEXT, created_by TEXT);
 CREATE TABLE task_events (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, run_id INTEGER, kind TEXT NOT NULL,
   payload TEXT, created_at INTEGER NOT NULL);
 CREATE TABLE task_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, profile TEXT, status TEXT NOT NULL,
