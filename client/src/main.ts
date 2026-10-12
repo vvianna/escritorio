@@ -8,7 +8,8 @@ import { migrateLegacyKeys, safeLocalStorage } from './ui/prefs';
 migrateLegacyKeys(safeLocalStorage());
 
 const params = new URLSearchParams(location.search);
-const store = new OfficeStore({ mock: params.has('mock') });
+// PROTÓTIPO (prototipo/predio-vertical): o HTML estático liga o modo demonstração sozinho.
+const store = new OfficeStore({ mock: params.has('mock') || '__PROTO_QS' in window });
 const world = createWorld(document.getElementById('world') as HTMLCanvasElement, store);
 createUI(document.getElementById('ui') as HTMLElement, store, world);
 store.connect();
