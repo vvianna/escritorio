@@ -31,6 +31,10 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- Hermes: a guarda de PR repetida (`active_pr`, 5+ em 10 min) não aparece mais como "Precisa de você / Responda ao
+  Hermes no Telegram". Quem solta essa guarda é o Manager (pl-opens-maos), então ela vira a placa amarela "Manager
+  resolvendo", sem mão levantada. Qualquer guarda repetida some assim que o cartão é reatribuído ou o worker inicia
+  (`assigned`/`spawned` depois da última guarda), sem esperar 10 min.
 - Hermes: o perfil só levanta a mão ("Precisa de você") quando o bloqueio é para o Victor. Bloqueio de roteamento
   interno que o kanban-nanny resolve sozinho (PR aprovado esperando merge, correção que volta ao dev, conflito com a
   main, SOUL.md.proposto, espera de tag/release; mesma regra do `kanban-nanny.py`) vira a placa amarela
