@@ -1,6 +1,6 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { chmodSync, mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -13,6 +13,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { tempDir } from '../test/fixtures';
 import { discoverBoards, firstLine, HermesSource, internalBlock, openReadOnly, pickCards, readBoard } from './hermes';
+import { HermesSlots, loadNomes, workerName } from './hermes-vagas';
 
 // Kanban SINTÉTICO, com as colunas do kanban.db do Hermes que a fonte lê (nada vem de um board real).
 const SCHEMA = `
@@ -242,7 +243,10 @@ describe('HermesSource no escritório', () => {
     const src = new HermesSource({ office, root: tmp.dir, now: () => NOW });
     src.poll();
     const byName = new Map(office.list().map((a) => [a.name, a]));
-    expect(byName.get('dev')).toMatchObject({ provider: 'hermes', status: 'working', title: 'Fonte hermes do escritório', hermes: { state: 'running' } });
+    // Cartão running vira trabalhador (sem nomes.json: "dev #1"); o personagem da função não fica à toa ao lado.
+    expect(byName.get('dev #1')).toMatchObject({ provider: 'hermes', status: 'working', title: 'Fonte hermes do escritório', hermes: { state: 'running' } });
+    expect(byName.get('dev #1')).toMatchObject({ hermesProfile: 'dev', hermesSlot: 1 });
+    expect(byName.has('dev')).toBe(false);
     expect(byName.get('architect')).toMatchObject({ status: 'waiting', waitingFor: 'falta escolher a porta.', hermes: { state: 'blocked' } });
     expect(byName.get('reviewer')).toMatchObject({ status: 'waiting', hermes: { state: 'guarded', board: 'openhealth' } });
     expect(byName.get('devgemini')).toMatchObject({ status: 'working', hermes: { state: 'delivering' } });
@@ -325,13 +329,15 @@ describe('HermesSource no escritório', () => {
     expect(rev.activity!.detail).toContain('era: Precisa de você');
     expect(rev.recent.some((a) => /^Precisa de você/.test(a.text))).toBe(false);
     expect(office.recentFeed(50).filter((f) => f.agentId === rev.id).map((f) => f.activity.text)).toContain('Resolvido pelo Manager: time-de-agentes 3.4');
-    expect(agent('devcodex')).toMatchObject({ status: 'working', hermes: { state: 'running', taskId: 't_34' } });
+    expect(agent('devcodex #1')).toMatchObject({ status: 'working', hermes: { state: 'running', taskId: 't_34' } });
 
-    // Quem tem outro cartão rodando volta a ele; o ✋ antigo fica no histórico como resolvido.
+    // O judge tem um trabalhador rodando outro cartão: o personagem da função sai, com o ✋ antigo marcado como
+    // resolvido no histórico; o trabalhador segue no cartão dele.
     const judge = agent('judge');
-    expect(judge).toMatchObject({ status: 'working', hermes: { state: 'running', taskId: 't_prx' } });
-    expect(judge.activity?.text).toMatch(/^Trabalhando/);
+    expect(judge.status).toBe('offline');
     expect(judge.recent.find((a) => a.id.includes(':t_out:blocked:'))).toMatchObject({ icon: '✅', text: 'Resolvido pelo Manager: outro do judge' });
+    expect(agent('judge #1')).toMatchObject({ status: 'working', hermes: { state: 'running', taskId: 't_prx' } });
+    expect(agent('judge #1').activity?.text).toMatch(/^Trabalhando/);
 
     // Ciclo seguinte sem mudança: nada é reescrito de novo.
     src.poll();
@@ -362,7 +368,8 @@ describe('HermesSource no escritório', () => {
       const port = (server.address() as AddressInfo).port;
       const snap = (await (await fetch(`http://127.0.0.1:${port}/api/snapshot`)).json()) as OfficeSnapshot;
       const states = Object.fromEntries(snap.agents.filter((a) => a.hermes).map((a) => [a.name, a.hermes!.state]));
-      expect(states).toEqual({ dev: 'running', architect: 'blocked', reviewer: 'guarded', devgemini: 'delivering' });
+      expect(states).toEqual({ 'dev #1': 'running', architect: 'blocked', reviewer: 'guarded', devgemini: 'delivering' });
+      expect(snap.agents.find((a) => a.name === 'dev #1')).toMatchObject({ hermesProfile: 'dev', hermesSlot: 1 });
       expect(snap.rooms.map((r) => r.name).sort()).toEqual(['default', 'openhealth']);
       expect(snap.meta.sources.filter((s) => s.provider === 'hermes').length).toBe(2);
     } finally {
@@ -370,5 +377,166 @@ describe('HermesSource no escritório', () => {
       server.closeAllConnections();
       await new Promise<void>((ok) => server.close(() => ok()));
     }
+  });
+});
+
+describe('um personagem por trabalhador (modelo 1: nome por vaga)', () => {
+  // nomes.json SINTÉTICO, no formato do ~/.hermes/time/nomes.json.
+  const NOMES = {
+    _comentario: 'teste',
+    dev: { tema: 'cientistas', nomes: ['Santos Dumont', 'Oswaldo Cruz', 'Carlos Chagas', 'César Lattes'] },
+    default: { tema: 'Manager', nomes: ['Hermes'] },
+  };
+
+  function writeNomes(root: string): void {
+    mkdirSync(join(root, 'time'), { recursive: true });
+    writeFileSync(join(root, 'time', 'nomes.json'), JSON.stringify(NOMES));
+  }
+
+  function office(now: () => number = () => NOW): Office {
+    return new Office({ names: new NameStore(null), version: '9.9.9', startedAt: NOW, accounts: () => [], sources: () => [], accountName: () => undefined, now });
+  }
+
+  const running = (id: string, assignee: string, startedAgo: number): Task => ({
+    id,
+    title: `cartão ${id}`,
+    status: 'running',
+    assignee,
+    started_at: S - startedAgo,
+    last_heartbeat_at: S - 30,
+  });
+
+  /** Personagens do Hermes presentes (não offline): nome → cartão. */
+  function present(o: Office): Record<string, string | undefined> {
+    return Object.fromEntries(
+      o
+        .list()
+        .filter((a) => a.provider === 'hermes' && a.status !== 'offline')
+        .map((a) => [a.name, a.hermes?.taskId]),
+    );
+  }
+
+  it('3 cartões running do dev → 3 nomes diferentes e estáveis; um termina → vaga liberada e reaproveitada', () => {
+    writeNomes(tmp.dir);
+    const path = join(tmp.dir, 'kanban.db');
+    makeDb(path, [running('t_a', 'dev', 900), running('t_b', 'dev', 600), running('t_c', 'dev', 300), { id: 't_d', title: 'próximo', status: 'ready', assignee: 'dev' }]);
+    const slotsFile = join(tmp.dir, 'data', 'hermes-vagas.json');
+    let now = NOW;
+    const o = office(() => now);
+    const src = new HermesSource({ office: o, root: tmp.dir, now: () => now, slotsFile });
+    src.poll();
+    // Quem começou antes pega a vaga mais baixa; o personagem mostra nome (função) + título do cartão.
+    expect(present(o)).toEqual({ 'Santos Dumont (dev)': 't_a', 'Oswaldo Cruz (dev)': 't_b', 'Carlos Chagas (dev)': 't_c' });
+    const oswaldo = o.list().find((a) => a.name === 'Oswaldo Cruz (dev)')!;
+    expect(oswaldo).toMatchObject({ title: 'cartão t_b', status: 'working', hermesProfile: 'dev', hermesSlot: 2, role: 'Trabalhador do Hermes (dev, vaga 2)' });
+    expect(JSON.parse(readFileSync(slotsFile, 'utf8'))).toEqual({ version: 1, vagas: { dev: { 'default/t_a': 0, 'default/t_b': 1, 'default/t_c': 2 } } });
+
+    // Ciclos seguintes: ninguém troca de nome.
+    now += 5_000;
+    src.poll();
+    now += 5_000;
+    src.poll();
+    expect(present(o)).toEqual({ 'Santos Dumont (dev)': 't_a', 'Oswaldo Cruz (dev)': 't_b', 'Carlos Chagas (dev)': 't_c' });
+
+    // O t_a termina: a vaga 1 é liberada e o Santos Dumont sai; os outros mantêm o nome.
+    const w = new DatabaseSync(path);
+    w.exec(`UPDATE tasks SET status='done', completed_at=${S + 10} WHERE id='t_a'`);
+    w.close();
+    now += 5_000;
+    src.poll();
+    expect(present(o)).toEqual({ 'Oswaldo Cruz (dev)': 't_b', 'Carlos Chagas (dev)': 't_c' });
+    expect(o.list().find((a) => a.name === 'Santos Dumont (dev)')!.status).toBe('offline');
+    expect(JSON.parse(readFileSync(slotsFile, 'utf8')).vagas.dev).toEqual({ 'default/t_b': 1, 'default/t_c': 2 });
+
+    // O t_d começa: pega a 1ª vaga livre (a do Santos Dumont), não a 4ª.
+    const w2 = new DatabaseSync(path);
+    w2.exec(`UPDATE tasks SET status='running', started_at=${S + 20}, last_heartbeat_at=${S + 20} WHERE id='t_d'`);
+    w2.close();
+    now += 5_000;
+    src.poll();
+    expect(present(o)).toEqual({ 'Santos Dumont (dev)': 't_d', 'Oswaldo Cruz (dev)': 't_b', 'Carlos Chagas (dev)': 't_c' });
+  });
+
+  it('o mapa cartão → vaga sobrevive a um reinício (lido do /data)', () => {
+    writeNomes(tmp.dir);
+    makeDb(join(tmp.dir, 'kanban.db'), [running('t_b', 'dev', 600), running('t_c', 'dev', 300)]);
+    const slotsFile = join(tmp.dir, 'data', 'hermes-vagas.json');
+    mkdirSync(join(tmp.dir, 'data'));
+    // Antes do reinício o t_b estava na vaga 3 e o t_c na 1.
+    writeFileSync(slotsFile, JSON.stringify({ version: 1, vagas: { dev: { 'default/t_b': 2, 'default/t_c': 0, 'default/t_velho': 1 } } }));
+    const o = office();
+    new HermesSource({ office: o, root: tmp.dir, now: () => NOW, slotsFile }).poll();
+    expect(present(o)).toEqual({ 'Carlos Chagas (dev)': 't_b', 'Santos Dumont (dev)': 't_c' });
+    expect(JSON.parse(readFileSync(slotsFile, 'utf8')).vagas.dev).toEqual({ 'default/t_b': 2, 'default/t_c': 0 });
+  });
+
+  it('sem nomes.json: "dev #1", "dev #2"; além dos nomes da função, "dev #5"', () => {
+    makeDb(join(tmp.dir, 'kanban.db'), [running('t_1', 'dev', 500), running('t_2', 'dev', 400)]);
+    const o = office();
+    new HermesSource({ office: o, root: tmp.dir, now: () => NOW }).poll();
+    expect(present(o)).toEqual({ 'dev #1': 't_1', 'dev #2': 't_2' });
+
+    const nomes = new Map([['dev', ['A', 'B', 'C', 'D']]]);
+    expect(workerName('dev', 4, nomes)).toBe('dev #5');
+    expect(workerName('dev', 0, nomes)).toBe('A (dev)');
+    expect(workerName('qa', 0, nomes)).toBe('qa #1');
+  });
+
+  it('personas e o Manager mantêm um personagem só; bloqueio da função segue no personagem da função', () => {
+    writeNomes(tmp.dir);
+    makeDb(
+      join(tmp.dir, 'kanban.db'),
+      [
+        running('t_m1', 'default', 900),
+        { ...running('t_m2', 'default', 100), last_heartbeat_at: S - 5 },
+        running('t_v', 'vini', 300),
+        running('t_s', 'sergiao', 300),
+        running('t_d1', 'dev', 500),
+        { id: 't_blk', title: 'precisa de você', status: 'blocked', assignee: 'dev' },
+      ],
+      [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a cor.' }, S - 60]],
+    );
+    const o = office();
+    new HermesSource({ office: o, root: tmp.dir, now: () => NOW }).poll();
+    const p = present(o);
+    expect(Object.keys(p).sort()).toEqual(['Hermes (default)', 'Santos Dumont (dev)', 'dev', 'sergiao', 'vini']);
+    expect(p['Hermes (default)']).toBe('t_m2'); // um personagem só: o cartão com sinal de vida mais recente, como antes
+    expect(p.dev).toBe('t_blk');
+    const dev = o.list().find((a) => a.name === 'dev')!;
+    expect(dev).toMatchObject({ status: 'waiting', hermesProfile: 'dev' });
+    expect(dev.hermesSlot).toBeUndefined();
+  });
+
+  it('board ilegível num ciclo: o trabalhador não sai e a vaga não é liberada', () => {
+    writeNomes(tmp.dir);
+    const path = join(tmp.dir, 'kanban', 'boards', 'openfinance', 'kanban.db');
+    makeDb(path, [running('t_x', 'dev', 600), running('t_y', 'dev', 300)]);
+    const slotsFile = join(tmp.dir, 'data', 'hermes-vagas.json');
+    const o = office();
+    const src = new HermesSource({ office: o, root: tmp.dir, now: () => NOW, slotsFile });
+    src.poll();
+    expect(present(o)).toEqual({ 'Santos Dumont (dev)': 't_x', 'Oswaldo Cruz (dev)': 't_y' });
+    writeFileSync(path, 'isto não é um banco sqlite');
+    src.poll();
+    expect(src.sources()[0]).toMatchObject({ label: 'openfinance', ok: false });
+    expect(present(o)).toEqual({ 'Santos Dumont (dev)': 't_x', 'Oswaldo Cruz (dev)': 't_y' });
+    expect(JSON.parse(readFileSync(slotsFile, 'utf8')).vagas.dev).toEqual({ 'openfinance/t_x': 0, 'openfinance/t_y': 1 });
+  });
+
+  it('loadNomes ignora comentários e entradas sem lista; HermesSlots ignora vaga repetida no arquivo', () => {
+    writeNomes(tmp.dir);
+    const nomes = loadNomes(join(tmp.dir, 'time', 'nomes.json'));
+    expect([...nomes.keys()]).toEqual(['dev', 'default']);
+    expect(loadNomes(join(tmp.dir, 'nao-existe.json')).size).toBe(0);
+    const file = join(tmp.dir, 'vagas.json');
+    writeFileSync(file, JSON.stringify({ version: 1, vagas: { dev: { 'b/1': 0, 'b/2': 0, 'b/3': 'x' } } }));
+    const slots = new HermesSlots(file);
+    expect(slots.get('dev', 'b', '1')).toBe(0);
+    expect(slots.get('dev', 'b', '2')).toBeUndefined();
+    slots.sync([
+      { profile: 'dev', board: 'b', taskId: '1' },
+      { profile: 'dev', board: 'b', taskId: '2' },
+    ]);
+    expect(slots.get('dev', 'b', '2')).toBe(1);
   });
 });

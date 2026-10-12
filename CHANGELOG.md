@@ -10,6 +10,16 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Novo
+
+- Hermes: um personagem por trabalhador. Cada cartão rodando de uma função (dev, reviewer, judge…) vira um
+  personagem próprio, com o nome da vaga que ocupa: "Oswaldo Cruz (dev)" + o título do cartão. Os nomes vêm de
+  `~/.hermes/time/nomes.json` (no Docker, `/hermes/time/nomes.json`, read-only); sem nome para a vaga, "dev #1",
+  "dev #2". Quem chega pega a primeira vaga livre e mantém o nome enquanto o cartão rodar; a vaga é liberada quando o
+  cartão sai de running. O mapa cartão → vaga fica em `<dataDir>/hermes-vagas.json` (no Docker, `/data`), então o nome
+  não troca a cada atualização nem ao reiniciar. Personas (vini, sergiao, alexa) e o Manager ("Hermes (default)")
+  continuam com um personagem só. O personagem da função fica com bloqueio, placa vermelha e entrega.
+
 ### Corrigido
 
 - Hermes: o perfil só levanta a mão ("Precisa de você") quando o bloqueio é para o Victor. Bloqueio de roteamento

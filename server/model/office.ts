@@ -102,6 +102,10 @@ export interface MainInput {
   waitingFor?: string;
   /** Nome fixo do personagem (perfis do Hermes: o nome do perfil); ausente = sorteado pela sessão. */
   name?: string;
+  /** Perfil (função) do Hermes do personagem (AgentInfo.hermesProfile). */
+  hermesProfile?: string;
+  /** Vaga do trabalhador do Hermes, 1 = 1ª (AgentInfo.hermesSlot). */
+  hermesSlot?: number;
 }
 
 export interface SubInput {
@@ -340,6 +344,8 @@ export class Office {
       seed: chosen?.seed ?? hash32(p.id),
     };
     if (p.provider && p.provider !== 'claude') info.provider = p.provider;
+    if (p.hermesProfile) info.hermesProfile = p.hermesProfile;
+    if (p.hermesSlot) info.hermesSlot = p.hermesSlot;
     if (chosen) {
       info.custom = true;
       if (chosen.parts) info.parts = { ...chosen.parts };

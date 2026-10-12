@@ -102,7 +102,8 @@ if (codex) agents.add(codex);
 // ESCRITORIO_HERMES=0 desliga.
 const hermesRoot = process.env.HERMES_ROOT?.trim() || join(config.home, '.hermes');
 if (process.env.ESCRITORIO_HERMES?.trim() !== '0' && discoverBoards(hermesRoot).length) {
-  agents.add(new HermesSource({ office, root: hermesRoot }));
+  // Nomes das vagas em <HERMES_ROOT>/time/nomes.json (read-only); o mapa cartão → vaga fica em <dataDir> (no Docker, /data).
+  agents.add(new HermesSource({ office, root: hermesRoot, slotsFile: join(config.dataDir, 'hermes-vagas.json') }));
 }
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
