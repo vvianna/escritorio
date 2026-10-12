@@ -20,6 +20,8 @@
 //   reviewer/judge/qa/auditor (vale para o `from`);
 // - running: status running do assignee.
 // Perfil sem nada disso mas com cartão mexido nos últimos IDLE_DAYS dias fica no escritório à toa (café).
+// Cartão destravado (saiu de blocked/internal ou foi reatribuído): a mão do perfil anterior abaixa e o "✋ Precisa de
+// você" fica na Atividade marcado como "✅ Resolvido pelo Manager".
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -289,6 +291,9 @@ const VERB: Record<HermesCardState, string> = {
   delivering: 'Entregando',
   internal: 'Manager resolvendo',
 };
+/** Estados em que o perfil espera alguém (mão levantada ou placa amarela): somem quando o cartão é destravado. */
+const HAND = new Set<HermesCardState>(['blocked', 'internal']);
+const RESOLVED_ICON = '✅';
 
 /** Pasta-sala de um board (vira a sala no escritório). */
 export function roomCwd(board: string): string {
@@ -406,6 +411,23 @@ export class HermesSource implements AgentSource {
         office.setStatus(id, status, waitingOf(card));
       }
       const prev = office.get(id)?.hermes;
+      // Destravado (saiu de blocked, ou foi reatribuído a outro perfil): a mão abaixa e o "✋ Precisa de você" fica no
+      // histórico marcado como resolvido. Se não houver outro cartão, o balão passa a ser esse "✅ resolvido".
+      if (prev && HAND.has(prev.state) && !cards.some((c) => c.profile === profile && c.board === prev.board && c.taskId === prev.taskId && c.state === prev.state)) {
+        const prefix = `${id}#${prev.board}:${prev.taskId}:${prev.state}:`;
+        office.rewriteActivities(
+          id,
+          (a) => a.id.startsWith(prefix) && a.icon !== RESOLVED_ICON,
+          (a) => ({
+            ...a,
+            kind: 'done',
+            icon: RESOLVED_ICON,
+            text: `Resolvido pelo Manager: ${prev.title}`.slice(0, 46),
+            detail: `${a.detail ?? `${prev.board} · ${prev.taskId}`} · era: ${VERB[prev.state]}`.slice(0, 300),
+          }),
+          !card,
+        );
+      }
       office.setHermes(id, card ? { board: card.board, taskId: card.taskId, title: card.title, state: card.state, ...(card.reason ? { reason: card.reason } : {}) } : undefined);
       if (card && (prev?.taskId !== card.taskId || prev?.state !== card.state)) {
         office.addActivity(

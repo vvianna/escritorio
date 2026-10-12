@@ -17,6 +17,9 @@ do meio (0.**3**.0).
   main, SOUL.md.proposto, espera de tag/release; mesma regra do `kanban-nanny.py`) vira a placa amarela
   "Manager resolvendo", sem mão.
 - Hermes: o alerta da gaveta diz "Responda ao Hermes no Telegram" em vez de "Vá ao terminal … para responder".
+- Hermes: quando o cartão sai de bloqueado ou é reatribuído a outro perfil, o perfil anterior abaixa a mão e volta a
+  ficar à toa (ou ao próximo cartão dele). O "✋ Precisa de você" continua na lista de Atividade, marcado como
+  "✅ Resolvido pelo Manager".
 
 ## [0.8.0] - 2026-10-09
 

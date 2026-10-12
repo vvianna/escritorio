@@ -752,6 +752,35 @@ export class Office {
   }
 
   /**
+   * Reescreve, no histórico, no feed e no balão, as atividades que casam com `match` (ex.: o "✋ Precisa de você" de
+   * um cartão do Hermes que já foi destravado vira "✅ resolvido"). `current` = a última reescrita vira o balão.
+   * Devolve quantas reescreveu.
+   */
+  rewriteActivities(id: string, match: (a: Activity) => boolean, patch: (a: Activity) => Activity, current = false): number {
+    const rec = this.agents.get(id);
+    if (!rec) return 0;
+    const info = rec.info;
+    const done = new Map<string, Activity>();
+    const swap = (a: Activity): Activity => {
+      if (!match(a)) return a;
+      let r = done.get(a.id);
+      if (!r) {
+        r = { ...patch(a), id: a.id };
+        done.set(a.id, r);
+      }
+      return r;
+    };
+    info.recent = info.recent.map(swap);
+    rec.history = rec.history.map(swap);
+    this.feed = this.feed.map((f) => (f.agentId === id && match(f.activity) ? { ...f, activity: swap(f.activity) } : f));
+    if (info.activity && match(info.activity)) info.activity = swap(info.activity);
+    if (!done.size) return 0;
+    if (current) info.activity = [...done.values()].sort((a, b) => a.at - b.at).at(-1);
+    this.markDirty();
+    return done.size;
+  }
+
+  /**
    * Atividades anteriores à janela lida no boot (do começo do transcript, lido em segundo plano):
    * entram só no histórico longo (GET /api/agents/:id), sem feed, sem mudar a atividade atual.
    */
