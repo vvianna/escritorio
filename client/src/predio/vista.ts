@@ -4,12 +4,16 @@
 // (nome + selo) acima de cada boneco, com + e − de zoom. Salas ativa = camada escondida e loop parado.
 // Dados: montarPredio(snapshot.agents, null); no ?mock=1 sem agentes do Hermes, exemploPredio().agentes.
 // S7: tocar no andar/placa enquadra sem corte (D3, ?andar= e &sala=), crachás desviando de móvel, placa e outro
-// crachá (D4; abreviados quando não há lugar) e window.__predio (D10). (S8): viagens.
+// crachá (D4; abreviados quando não há lugar) e window.__predio (D10).
+// S8: viagens animadas (D6, D7): MemoriaCartoes compara cada snapshot com o anterior; quem muda de andar anda até a
+// fila, pega a cabine e sai no andar novo. Pula a animação (só reposiciona) com a aba escondida, na vista Salas, com o
+// trajeto fora da tela ou com MAX_PENDENTES; aba escondida por > 5 s ou troca para o Prédio resolve o que andava.
+// ?mock=1&viagens=demo roda o roteiro de demonstração (D11).
 import * as artModule from '../art';
 import { TILE } from '../art/api';
 import type { UiComponent, UiContext } from '../ui/context';
 import { seloModelo } from '../ui/hermes-selo';
-import { exemploPredio, montarPredio, ROTULO_ESTADO, type AgentePredio, type AndarId, type Ocupante, type PredioVista } from '../ui/predio-model';
+import { exemploPredio, montarPredio, ROTULO_ESTADO, salaDe, type AgentePredio, type AndarId, type Ocupante, type PredioVista } from '../ui/predio-model';
 import type { AreaLayout } from '../world/layout/types';
 import { PathFinder } from '../world/path/astar';
 import { furnitureSprites, opaqueBounds } from '../world/render/scene';
@@ -17,7 +21,8 @@ import { Bonecos, type Boneco } from './bonecos';
 import { BUSCA_MAX, posicionarCrachas, sobrepoe, type ItemCracha } from './crachas';
 import { andarEm, areaVisivel, enquadrarRet, ESCALA_MAX, escalaVisao, LARGO_PX, ladoDireito, MARGEM, prenderPlaca, retAndar, retSala, retSalaPorId, type LivreV, type Ret } from './enquadrar';
 import { BX, LAJE, montarCena, POCO_W, POCO_X, WT, type AndarCena, type Cena } from './planta';
-import { areasVis, desenhar, type ArtPredio, type Quadro } from './render';
+import { areasVis, cabineY, desenhar, type ArtPredio, type Quadro } from './render';
+import { MemoriaCartoes, roteiroDemo, type Viagem } from './viagens';
 
 const art: ArtPredio = artModule;
 const CHAVE = 'escritorio.vista';
@@ -26,6 +31,10 @@ type Vista = 'salas' | 'predio';
 const FPS_MS = 1000 / 12;
 const FATOR_ZOOM = 1.6;
 const WPX = WT * TILE;
+/** Aba escondida por mais que isto: ao voltar, as viagens em andamento terminam na hora (D7, como world/index.ts). */
+const VOLTA_MS = 5000;
+/** Passo do roteiro de demonstração (?viagens=demo): um snapshot novo a cada meio segundo. */
+const DEMO_MS = 500;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -82,7 +91,7 @@ interface Montada {
   bonecos: Bonecos;
   placasAndar: { a: AndarCena; el: HTMLButtonElement; resumo: HTMLElement }[];
   placasSala: { area: AreaLayout; el: HTMLElement }[];
-  /** Móveis (parte opaca do sprite base e do `front`) e a cabine, em px de mundo: obstáculos dos crachás. */
+  /** Móveis (parte opaca do sprite base e do `front`), em px de mundo: obstáculos dos crachás (a cabine anda: à parte). */
   moveis: Ret[];
 }
 
@@ -124,6 +133,16 @@ export class VistaPredio implements UiComponent {
   private ultExpirar = 0;
   private semente = 12345;
   private readonly rnd = () => (this.semente = (this.semente * 1103515245 + 12345) >>> 0) / 0xffffffff;
+  // viagens (S8)
+  private readonly memoria = new MemoriaCartoes();
+  /** Viagens que ainda não começaram (quem viaja está noutro roteiro). */
+  private readonly filaViagens: Viagem[] = [];
+  private readonly andando = new Set<Viagem>();
+  private feitas = 0;
+  private resolvidas = 0;
+  private escondidaEm = 0;
+  /** ?mock=1&viagens=demo: snapshots do roteiro de demonstração (D11). */
+  private readonly demo: ((agora: number) => AgentePredio[]) | null;
 
   constructor(
     private readonly ctx: UiContext,
@@ -166,7 +185,16 @@ export class VistaPredio implements UiComponent {
         this.desenharAgora();
       }
     });
-    document.addEventListener('visibilitychange', () => this.ligarLoop());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        // escondida por > 5 s: o loop está parado, então o que estava andando termina na hora (sem esperar a volta)
+        const em = (this.escondidaEm = performance.now());
+        setTimeout(() => {
+          if (document.hidden && this.escondidaEm === em) this.resolverEmAndamento();
+        }, VOLTA_MS + 50);
+      } else if (this.escondidaEm && performance.now() - this.escondidaEm > VOLTA_MS) this.resolverEmAndamento();
+      this.ligarLoop();
+    });
     // A área livre muda quando a lista lateral ou a gaveta abrem/fecham (--free-* no root).
     new MutationObserver(() => {
       if (this.camada.hidden) return;
@@ -178,8 +206,10 @@ export class VistaPredio implements UiComponent {
     }).observe(this.ctx.root, { attributes: true, attributeFilter: ['style'] });
 
     this.vista = lerVista();
-    this.aplicarVista();
     const q = new URLSearchParams(location.search);
+    this.demo = this.ctx.store.mock && q.get('viagens') === 'demo' ? roteiroDemo(performance.now()) : null;
+    if (this.demo) setInterval(() => this.render(), DEMO_MS);
+    this.aplicarVista();
     if (q.has('mock') || q.has('debug')) (window as unknown as { __predio: GanchoPredio }).__predio = this.gancho();
   }
 
@@ -189,6 +219,8 @@ export class VistaPredio implements UiComponent {
     gravarVista(v);
     if (v === this.vista) return;
     this.vista = v;
+    // voltou ao Prédio: o que estava andando (parado enquanto as Salas estavam na tela) termina na hora (D7)
+    if (v === 'predio') this.resolverEmAndamento();
     this.aplicarVista();
   }
 
@@ -222,13 +254,19 @@ export class VistaPredio implements UiComponent {
 
   render(): void {
     let agentes = (this.ctx.store.snapshot?.agents ?? []) as unknown as AgentePredio[];
-    if (this.ctx.store.mock && !agentes.some((a) => a.provider === 'hermes')) agentes = exemploPredio().agentes;
+    if (this.demo) agentes = this.demo(performance.now());
+    else if (this.ctx.store.mock && !agentes.some((a) => a.provider === 'hermes')) agentes = exemploPredio().agentes;
     const v = montarPredio(agentes, null);
     const agora = performance.now();
+    // quem muda de andar (D6); as que passam de MAX_PENDENTES terminam na hora
+    const novas = this.memoria.atualizar(agentes, Date.now());
+    for (const x of this.memoria.resolverNaHora) this.resolverViagem(x);
+    this.filaViagens.push(...novas);
     const assinatura = JSON.stringify(v.andares);
     if (assinatura === this.assinatura && this.m) {
       this.m.bonecos.expirar(agora);
       this.reconciliarCrachas();
+      this.despachar();
       return;
     }
     this.assinatura = assinatura;
@@ -239,12 +277,77 @@ export class VistaPredio implements UiComponent {
     m.quadro.deployRodando = m.bonecos.lista.some((b) => b.o.perfil === 'deployer' && b.o.estado === 'running');
     this.atualizarPlacas(v);
     this.reconciliarCrachas();
+    this.despachar();
     if (!this.camada.hidden) this.desenharAgora();
   }
 
+  // ------------------------------------------------------------------ viagens (D7)
+
+  /**
+   * Começa as viagens da fila cujo viajante está livre. Pula a animação (conta em resolvidasSemAnimacao) quando, na
+   * hora de começar: a aba está escondida, a vista é Salas, ou nada do trajeto (sala de origem, de destino e o poço
+   * entre os dois andares) cruza a área visível.
+   */
+  private despachar(): void {
+    const m = this.m;
+    if (!m) return;
+    for (const v of [...this.filaViagens]) {
+      const pular = document.hidden || this.vista !== 'predio' || !this.trajetoVisivel(v);
+      if (!pular && m.bonecos.ocupado(v)) continue;
+      this.filaViagens.splice(this.filaViagens.indexOf(v), 1);
+      if (!pular && m.bonecos.iniciar(v, performance.now())) this.andando.add(v);
+      else this.resolverViagem(v);
+    }
+  }
+
+  /** Só reposiciona: quem viaja já está onde terminaria (na mesa dele) e o 📦 conta como entregue. */
+  private resolverViagem(v: Viagem): void {
+    this.resolvidas++;
+    this.memoria.concluir(v);
+  }
+
+  /** A viagem chegou ao andar de destino (animada) ou foi encerrada na hora. */
+  private terminou(v: Viagem, animada: boolean): void {
+    if (!this.andando.delete(v)) return;
+    if (animada) this.feitas++;
+    else this.resolvidas++;
+    this.memoria.concluir(v);
+  }
+
+  /** Aba escondida por > 5 s ou troca para o Prédio: cabine e viagens em andamento terminam na hora (D7). */
+  private resolverEmAndamento(): void {
+    this.m?.bonecos.resolverTudo();
+  }
+
+  /** Sala de origem, sala de destino ou o poço entre os dois andares cruzam a área visível da camada (D7, regra 3). */
+  private trajetoVisivel(v: Viagem): boolean {
+    const m = this.m;
+    const W = this.camada.clientWidth;
+    const H = this.camada.clientHeight;
+    if (!m || this.camada.hidden || !W || !H) return false;
+    const s = this.escala;
+    const x0 = (this.camada.scrollLeft - this.offX()) / s;
+    const y0 = this.camada.scrollTop / s;
+    const tela: Ret = { x: x0, y: y0, w: W / s, h: H / s };
+    const sala = (perfil: string) => m.cena.salaDe.get(perfil === 'victor' ? 'victor' : salaDe(perfil).sala)?.rect;
+    const de = v.tipo === 'portao' ? sala('default') : v.tipo === 'persona' ? m.cena.salaDe.get('recepcao')?.rect : sala(v.dePerfil);
+    const para = sala(v.tipo === 'portao' ? 'victor' : v.paraPerfil);
+    const cys = [m.cena.paradas[v.de].cy, m.cena.paradas[v.para].cy];
+    const poco = { x: POCO_X, y: Math.min(...cys), w: POCO_W, h: Math.max(...cys) - Math.min(...cys) + 3 };
+    return [de, para, poco].some((r) => r && sobrepoe({ x: r.x * TILE, y: r.y * TILE, w: r.w * TILE, h: r.h * TILE }, tela) > 0);
+  }
+
+  /** Cabine (px de mundo) na posição atual: obstáculo dos crachás. */
+  private retCabine(m: Montada): Ret {
+    return { x: POCO_X * TILE, y: cabineY(m.cena, m.bonecos.elevador.posicao), w: POCO_W * TILE, h: 2 * TILE };
+  }
+
   private montar(v: PredioVista, chave: string): void {
+    // cena nova (mudou o conjunto de salas): o que estava andando na cena velha termina na hora
+    this.resolverEmAndamento();
     const cena = montarCena(v, art);
     const bonecos = new Bonecos(cena, art);
+    bonecos.aoTerminar = (x, animada) => this.terminou(x, animada);
     for (const c of this.crachas.values()) c.el.remove();
     this.crachas.clear();
     this.rotulos.replaceChildren();
@@ -280,14 +383,12 @@ export class VistaPredio implements UiComponent {
           if (ob.w > 0 && ob.h > 0) moveis.push({ x: Math.round(f.ax - sp.ax) + ob.x, y: Math.round(f.ay - sp.ay) + ob.y, w: ob.w, h: ob.h });
         }
       }
-    // cabine (parada no Térreo até a S8)
-    moveis.push({ x: POCO_X * TILE, y: (cena.paradas.terreo.cy + 1) * TILE, w: POCO_W * TILE, h: 2 * TILE });
     this.m = {
       chave,
       cena,
       pf: new PathFinder(cena.grid),
       bonecos,
-      quadro: { cena, vis, bonecos: bonecos.lista, porMesa: bonecos.porMesa, deployRodando: false },
+      quadro: { cena, vis, bonecos: bonecos.lista, porMesa: bonecos.porMesa, deployRodando: false, elevador: bonecos.elevador, caixas: bonecos.caixas },
       placasAndar,
       placasSala,
       moveis,
@@ -503,6 +604,7 @@ export class VistaPredio implements UiComponent {
     const dt = Math.min(0.1, (agora - this.ultimo) / 1000);
     this.ultimo = agora;
     m.bonecos.passo(dt, agora, m.pf, this.rnd);
+    if (this.filaViagens.length) this.despachar();
     // Quem sumiu há > 3 s sai mesmo se o servidor parar de mandar snapshot.
     if (agora - this.ultExpirar >= 1000) {
       this.ultExpirar = agora;
@@ -617,7 +719,7 @@ export class VistaPredio implements UiComponent {
     const cr = this.camada.getBoundingClientRect();
     const perto: Ret = { x: vis.x - 80, y: vis.y - 80, w: vis.w + 160, h: vis.h + 160 };
     const obst: Ret[] = [];
-    for (const mv of m.moveis) {
+    for (const mv of [...m.moveis, this.retCabine(m)]) {
       const o = { x: ox + mv.x * s, y: mv.y * s, w: mv.w * s, h: mv.h * s };
       if (sobrepoe(o, perto) > 0) obst.push(o);
     }
@@ -655,7 +757,6 @@ export class VistaPredio implements UiComponent {
   // ------------------------------------------------------------------ verificação (D10)
 
   private gancho(): GanchoPredio {
-    const filas = (): Record<AndarId, string[]> => ({ cobertura: [], produto: [], ti: [], terreo: [] });
     return {
       vista: () => this.vista,
       escala: () => this.escala,
@@ -667,9 +768,15 @@ export class VistaPredio implements UiComponent {
         return { salaOuAndar: this.alvo.nome, esquerda: r2(esquerda), direita: r2(esquerda + ret.w * this.escala), larguraTela: this.camada.clientWidth };
       },
       medirCrachas: () => this.medirCrachas(),
-      // elevador e viagens chegam na S8: valores neutros (cabine parada no Térreo, porta fechada, nada andando)
-      elevador: () => ({ posicao: Math.max(0, (this.m?.cena.andares.length ?? 1) - 1), porta: 0, carga: [], filas: filas() }),
-      viagens: () => ({ pendentes: 0, andando: 0, feitas: 0, resolvidasSemAnimacao: 0 }),
+      elevador: () => {
+        const filas: Record<AndarId, string[]> = { cobertura: [], produto: [], ti: [], terreo: [] };
+        const m = this.m;
+        if (!m) return { posicao: 3, porta: 0, carga: [], filas };
+        const el = m.bonecos.elevador;
+        for (const a of m.cena.andares) filas[a.id] = [...el.fila(m.bonecos.indice(a.id))];
+        return { posicao: Math.round(el.posicao * 100) / 100, porta: Math.round(el.porta * 100) / 100, carga: [...el.carga], filas };
+      },
+      viagens: () => ({ pendentes: this.filaViagens.length, andando: this.andando.size, feitas: this.feitas, resolvidasSemAnimacao: this.resolvidas }),
     };
   }
 
@@ -692,7 +799,7 @@ export class VistaPredio implements UiComponent {
       return { x: b.left - cr.left, y: b.top - cr.top, w: b.width, h: b.height };
     };
     const tela: Ret = { x: 0, y: 0, w: W, h: H };
-    const moveis = m.moveis.map((mv) => ({ x: ox + mv.x * s - sl, y: mv.y * s - st, w: mv.w * s, h: mv.h * s }));
+    const moveis = [...m.moveis, this.retCabine(m)].map((mv) => ({ x: ox + mv.x * s - sl, y: mv.y * s - st, w: mv.w * s, h: mv.h * s }));
     const placas = [...m.placasAndar, ...m.placasSala].map((p) => rel(p.el));
     const crachas = [...this.crachas.values()].filter((c) => c.el.style.visibility === 'visible').map((c) => ({ c, r: rel(c.el) })).filter((x) => sobrepoe(x.r, tela) > 0);
     crachas.forEach(({ c, r: a }, i) => {
