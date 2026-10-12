@@ -226,4 +226,13 @@ done
 chmod 644 "$ctmp"
 mv -f -- "$ctmp" "$DEST/cadeiras.jsonl"
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Régua: veredito "precisa do Victor?" da fila do Manager (~/.local/state/time/manager-fila*.jsonl) -> $DEST/regua.jsonl.
+# Só board, cartão, hash do motivo, destino, categoria, fonte e confiança (ver tools/regua-fila.py e
+# server/sources/hermes-regua.ts). Sem python3 ou sem a pasta: não grava (o Escritório usa as regras fixas dele).
+FILA="${ESCRITORIO_FILA_DIR:-$HOME/.local/state/time}"
+if [ -d "$FILA" ] && command -v python3 >/dev/null 2>&1; then
+  python3 "$(dirname -- "$0")/regua-fila.py" "$FILA" "$DEST/regua.jsonl" 2>"$err" || echo "aviso: régua da fila não copiada: $(head -n 1 "$err")" >&2
+fi
+
 [ "${1:-}" != -v ] || echo "ok: $n banco(s) de sessão -> $DEST/uso.jsonl ($(wc -l <"$DEST/uso.jsonl") linhas), cadeiras.jsonl ($(wc -l <"$DEST/cadeiras.jsonl") linhas)"

@@ -24,6 +24,10 @@
 >   container). A cadeira mostra um selo por assinatura (Claude, Codex, AG Gemini, AG Claude, Grok; modelo no hover),
 >   laranja "↪ reserva" quando cai para a reserva, e a Atividade ganha "passou de X para Y (reserva) — motivo: …" e
 >   "⚙️ <perfil>: modelo principal agora é X". Atraso: até um ciclo do cron (2 min).
+> - **régua "precisa do Victor?"**: o mesmo script grava `~/.cache/escritorio/regua.jsonl` com o veredito que a fila
+>   do Manager (`~/.local/state/time/manager-fila*.jsonl`) deu a cada bloqueio, SÓ board, cartão, hash do motivo,
+>   destino, categoria, fonte e confiança (`tools/regua-fila.py`; precisa de `python3` no host). Sem ele, o Escritório
+>   usa as regras fixas da régua (`server/sources/hermes-regua.ts`). Só bloqueio do Victor levanta a mão.
 >
 > Ligar: `bash tools/copiar-uso.sh && bash tools/gerar-montagens.sh && docker compose up -d --build`. Desligar: `docker compose down`.
 > Não use `npm run docker:up` aqui (é o fluxo do Habblaud, que monta as pastas do Claude Code).

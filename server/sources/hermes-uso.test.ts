@@ -239,7 +239,7 @@ describe('uso.jsonl (tools/copiar-uso.sh no host -> container)', () => {
 
   function copia(agora = AGORA): string {
     return execFileSync('bash', [SCRIPT], {
-      env: { ...process.env, ESCRITORIO_HERMES_DIR: raiz, ESCRITORIO_CACHE_DIR: cache, ESCRITORIO_AGY_COTA: agy, ESCRITORIO_AGORA: String(Math.floor(agora / 1000)) },
+      env: { ...process.env, ESCRITORIO_HERMES_DIR: raiz, ESCRITORIO_CACHE_DIR: cache, ESCRITORIO_AGY_COTA: agy, ESCRITORIO_FILA_DIR: join(raiz, 'sem-fila'), ESCRITORIO_AGORA: String(Math.floor(agora / 1000)) },
       encoding: 'utf8',
     });
   }
@@ -281,6 +281,24 @@ describe('uso.jsonl (tools/copiar-uso.sh no host -> container)', () => {
     expect(statSync(join(cache, 'uso.jsonl')).mode & 0o777).toBe(0o644);
     // sem lixo de temporário na pasta montada
     expect(readdirSync(cache).sort()).toEqual(['agy-cota.tsv', 'cadeiras.jsonl', 'uso.jsonl']);
+  });
+
+  it.skipIf(!temSqlite3)('com a fila do Manager, grava também o regua.jsonl (só o veredito, sem o motivo)', () => {
+    const fila = join(raiz, 'fila');
+    mkdirSync(fila);
+    writeFileSync(
+      join(fila, 'manager-fila.jsonl'),
+      `${JSON.stringify({ board: 'hermes-lab', task: 't_abc123', titulo: 'x', assignee: 'dev', motivo: `Você faz: ${SEGREDO}`, origem: 'nanny-bloqueio', regua: { destino: 'manager', categoria: 'manager', fonte: 'regra', confianca: 1, porque: 'p' } })}\n`,
+    );
+    const saida = execFileSync('bash', [SCRIPT], {
+      env: { ...process.env, ESCRITORIO_HERMES_DIR: raiz, ESCRITORIO_CACHE_DIR: cache, ESCRITORIO_AGY_COTA: agy, ESCRITORIO_FILA_DIR: fila, ESCRITORIO_AGORA: String(Math.floor(AGORA / 1000)) },
+      encoding: 'utf8',
+    });
+    expect(saida).toBe('');
+    const texto = readFileSync(join(cache, 'regua.jsonl'), 'utf8');
+    expect(texto).not.toContain(SEGREDO);
+    expect(texto).toContain('"task": "t_abc123"');
+    expect(readdirSync(cache).sort()).toEqual(['agy-cota.tsv', 'cadeiras.jsonl', 'regua.jsonl', 'uso.jsonl']);
   });
 
   it.skipIf(!temSqlite3)('lerUsoJsonl dá o mesmo que ler os bancos direto', () => {

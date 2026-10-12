@@ -12,12 +12,16 @@
 // running):
 // - guarded (placa vermelha), mesmas regras do pl-opens-coleta.py: >=5 respawn_guarded do mesmo motivo em 10 min
 //   (menos active_pr, ver internal), consecutive_failures >= 3, running sem heartbeat há mais de 60 min, ou blocked
-//   cujo último evento de bloqueio é erro do sistema (gave_up, spawn_failed, crashed, timed_out — regra do nanny);
-// - blocked: blocked esperando humano (levanta a mão; balão = 1ª linha do motivo, sem o "O que travou:");
-// - internal (placa amarela "Manager resolvendo", sem mão): blocked de roteamento interno que o kanban-nanny resolve
-//   sozinho (ver internalBlock: mesma regra do kanban-nanny.py), e (12/10) guarda de PR repetida (active_pr), que o
-//   pl-opens-maos solta sozinho. Guarda repetida de qualquer motivo some assim que há `assigned` ou `spawned` depois
-//   da última guarda (a guarda foi solta), sem esperar a janela de 10 min;
+//   cujo último evento de bloqueio é erro do sistema (gave_up, spawn_failed, crashed, timed_out — regra do nanny).
+//   12/10 (régua única): erro de sistema é do Manager, então a placa vermelha NÃO levanta a mão nem pede "Responda ao
+//   Hermes no Telegram" (o personagem fica trabalhando, com a placa);
+// - blocked: SÓ o bloqueio que a régua única "precisa do Victor?" manda ao Victor (sources/hermes-regua.ts: veredito
+//   da fila do Manager para este motivo ou, sem ele, as regras fixas de regua_victor.py sobre o "Você faz") — levanta a
+//   mão; balão = 1ª linha do motivo, sem o "O que travou:";
+// - internal (placa amarela "Manager resolvendo", sem mão): todo bloqueio que a régua manda ao Manager (rótulo curto do
+//   internalBlock quando é um caso conhecido do kanban-nanny, senão a 1ª linha do motivo), e (12/10) guarda de PR
+//   repetida (active_pr), que o pl-opens-maos solta sozinho. Guarda repetida de qualquer motivo some assim que há
+//   `assigned` ou `spawned` depois da última guarda (a guarda foi solta), sem esperar a janela de 10 min;
 // - delivering: review_requested há menos de DELIVER_MS (vale para o `implementer` do evento) ou reatribuição para
 //   reviewer/judge/qa/auditor (vale para o `from`);
 // - running: status running do assignee.
@@ -39,6 +43,7 @@ import type { AgentStatus, HermesCard, HermesCardState, HermesModelo, SourceInfo
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
 import { CADEIRA_VELHA_MS, criarLeitorCadeiras, modeloDaCadeira, nomeModelo, type ConfigPerfil, type DadosCadeiras } from './hermes-cadeira';
+import { criarLeitorRegua, reguaDoBloqueio, type ReguaFila } from './hermes-regua';
 import { HermesSlots, loadNomes, nomesPath, SINGLE_PROFILES, singleName, workerName } from './hermes-vagas';
 import type { AgentSource } from './source';
 
@@ -143,7 +148,8 @@ const AUTOMERGE_BOARDS = new Set(['openfinance', 'openhealth', 'openinfra', 'her
 /**
  * Bloqueio que NÃO é com o Victor: roteamento interno que o kanban-nanny / o Manager resolvem sozinhos. Mesma regra do
  * ~/.hermes/scripts/kanban-nanny.py (regexes copiadas de lá) mais conflito com a main e espera de tag/release.
- * Devolve o rótulo curto do caso, ou undefined quando é para humano (aí levanta a mão).
+ * Devolve o rótulo curto do caso, ou undefined quando não é um caso conhecido (aí quem decide é a régua única, ver
+ * sources/hermes-regua.ts; o rótulo só nomeia a placa amarela).
  */
 export function internalBlock(board: string, reason: string | undefined): string | undefined {
   const txt = (reason ?? '').replace(/\\n/g, '\n');
@@ -194,8 +200,11 @@ interface TaskRow {
   current_run_id: number | null;
 }
 
-/** Lê um board: o estado de cada cartão aberto (por perfil) e os perfis com cartão recente. `now` em ms. */
-export function readBoard(db: DatabaseSync, board: string, now: number): BoardRead {
+/**
+ * Lê um board: o estado de cada cartão aberto (por perfil) e os perfis com cartão recente. `now` em ms. `fila` = os
+ * vereditos da régua vindos da fila do Manager (regua.jsonl); sem ela valem as regras fixas.
+ */
+export function readBoard(db: DatabaseSync, board: string, now: number, fila?: ReguaFila): BoardRead {
   const t0 = Math.floor(now / 1000);
   const cards: ProfileCard[] = [];
   const runBeat = db.prepare('SELECT COALESCE(last_heartbeat_at, started_at) AS at FROM task_runs WHERE id=?');
@@ -279,10 +288,11 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
       const at = ev?.created_at ?? t.created_at;
       if (!guard && ev && SYSTEM_BLOCK.has(ev.kind)) guard = `erro do sistema (${ev.kind})`;
       const why = str(payloadOf(ev?.payload).reason);
-      const internal = guard ? undefined : internalBlock(board, why);
+      const line = firstLine(why) ?? '(bloqueou sem escrever o motivo)';
+      // 12/10: régua única "precisa do Victor?" — só levanta a mão o que é do Victor; o resto é do Manager.
       if (guard) add(t.assignee, t, 'guarded', at, guard);
-      else if (internal) add(t.assignee, t, 'internal', at, internal);
-      else add(t.assignee, t, 'blocked', at, firstLine(why) ?? '(bloqueou sem escrever o motivo)');
+      else if (reguaDoBloqueio(fila, board, t.id, why).destino === 'victor') add(t.assignee, t, 'blocked', at, line);
+      else add(t.assignee, t, 'internal', at, internalBlock(board, why) ?? line);
     } else if (guard) {
       add(t.assignee, t, 'guarded', t0, guard);
     } else if (guardInternalBy.has(t.id)) {
@@ -334,15 +344,15 @@ export function pickCards(cards: readonly ProfileCard[]): Map<string, ProfileCar
   return out;
 }
 
+/** Só `blocked` (bloqueio que a régua manda ao Victor) espera você; placa vermelha e amarela são do Manager. */
 function statusOf(state: HermesCardState | undefined): AgentStatus {
-  if (state === 'blocked' || state === 'guarded') return 'waiting';
+  if (state === 'blocked') return 'waiting';
   return state ? 'working' : 'idle';
 }
 
 function waitingOf(card: ProfileCard | undefined): string | undefined {
   if (!card) return undefined;
   if (card.state === 'blocked') return card.reason ?? 'responder no kanban';
-  if (card.state === 'guarded') return `⚠ ${card.reason ?? 'placa vermelha'}`;
   return undefined;
 }
 
@@ -378,6 +388,11 @@ export interface HermesSourceOptions {
    * Docker, /cache/escritorio/cadeiras.jsonl). null/ausente = sem selo de modelo.
    */
   cadeirasFile?: string | null;
+  /**
+   * regua.jsonl de tools/copiar-uso.sh (veredito da régua "precisa do Victor?" que a fila do Manager deu a cada
+   * bloqueio; no Docker, /cache/escritorio/regua.jsonl). null/ausente = só as regras fixas (sources/hermes-regua.ts).
+   */
+  reguaFile?: string | null;
 }
 
 interface BoardState extends HermesBoard {
@@ -408,6 +423,7 @@ export class HermesSource implements AgentSource {
   private readonly now: () => number;
   private readonly slots: HermesSlots;
   private readonly lerCadeiras: () => DadosCadeiras;
+  private readonly lerRegua: () => ReguaFila;
   /** Último selo de cada personagem (por cartão): detecta a troca para a reserva. */
   private modelos = new Map<string, { taskId: string; modelo: HermesModelo }>();
   /** Última configuração vista de cada perfil (hash de model/provider/fallback_providers). */
@@ -417,6 +433,7 @@ export class HermesSource implements AgentSource {
     this.now = opts.now ?? Date.now;
     this.slots = new HermesSlots(opts.slotsFile ?? null);
     this.lerCadeiras = criarLeitorCadeiras(opts.cadeirasFile ?? null);
+    this.lerRegua = criarLeitorRegua(opts.reguaFile ?? null);
   }
 
   start(): void {
@@ -461,11 +478,12 @@ export class HermesSource implements AgentSource {
     this.boards = discoverBoards(this.opts.root).map((b) => ({ ...b, ok: true }));
     const cards: ProfileCard[] = [];
     const recent = new Map<string, { board: string; at: number }>();
+    const fila = this.lerRegua();
     for (const b of this.boards) {
       let db: DatabaseSync | undefined;
       try {
         db = openReadOnly(b.path);
-        const r = readBoard(db, b.board, now);
+        const r = readBoard(db, b.board, now, fila);
         cards.push(...r.cards);
         for (const [profile, at] of r.recent) {
           const cur = recent.get(profile);
@@ -645,7 +663,7 @@ export class HermesSource implements AgentSource {
         id,
         {
           id: `${id}#${card.board}:${card.taskId}:${card.state}:${card.at}`,
-          kind: card.state === 'delivering' ? 'communicate' : card.state === 'running' || card.state === 'internal' ? 'other' : 'wait',
+          kind: card.state === 'delivering' ? 'communicate' : card.state === 'blocked' ? 'wait' : 'other',
           icon: ICON[card.state],
           text: `${VERB[card.state]}: ${card.title}`.slice(0, 46),
           detail: `${card.board} · ${card.taskId}${card.reason ? ` · ${card.reason}` : ''}`,

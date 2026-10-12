@@ -115,7 +115,10 @@ if (process.env.ESCRITORIO_HERMES?.trim() !== '0' && discoverBoards(hermesRoot).
   const usoJsonl = process.env.ESCRITORIO_USO?.trim();
   const cadeirasFile =
     process.env.ESCRITORIO_CADEIRAS?.trim() || (usoJsonl ? join(dirname(usoJsonl), 'cadeiras.jsonl') : join(config.home, '.cache', 'escritorio', 'cadeiras.jsonl'));
-  agents.add(new HermesSource({ office, root: hermesRoot, slotsFile: join(config.dataDir, 'hermes-vagas.json'), cadeirasFile }));
+  // Régua "precisa do Victor?" da fila do Manager: regua.jsonl de tools/copiar-uso.sh (ESCRITORIO_REGUA; padrão ao lado
+  // do cadeiras.jsonl). Sem ele, só as regras fixas de sources/hermes-regua.ts.
+  const reguaFile = process.env.ESCRITORIO_REGUA?.trim() || join(dirname(cadeirasFile), 'regua.jsonl');
+  agents.add(new HermesSource({ office, root: hermesRoot, slotsFile: join(config.dataDir, 'hermes-vagas.json'), cadeirasFile, reguaFile }));
 }
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.

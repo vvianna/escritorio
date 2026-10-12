@@ -13,6 +13,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { tempDir } from '../test/fixtures';
 import { discoverBoards, firstLine, HermesSource, internalBlock, openReadOnly, pickCards, readBoard } from './hermes';
+import { hashMotivo, parseReguaFila } from './hermes-regua';
 import { HermesSlots, loadNomes, workerName } from './hermes-vagas';
 
 // Kanban SINTÉTICO, com as colunas do kanban.db do Hermes que a fonte lê (nada vem de um board real).
@@ -66,7 +67,7 @@ function fixtureRoot(root: string): void {
       { id: 't_blk', title: 'Desenhar o prédio', status: 'blocked', assignee: 'architect' },
       { id: 't_old', title: 'Prints antigos', status: 'done', assignee: 'qa', completed_at: S - 2 * 86400 },
     ],
-    [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a porta.\nVocê faz: responda "4317".', kind: 'needs_input' }, S - 300]],
+    [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a porta.\nVocê faz: faça o login no painel da porta.', kind: 'needs_input' }, S - 300]],
   );
   const guard = Array.from({ length: 6 }, (_, i) => ['t_grd', 'respawn_guarded', { reason: 'blocker_auth' }, S - 60 * (i + 1)] as [string, string, unknown, number]);
   makeDb(
@@ -266,6 +267,48 @@ describe('readBoard', () => {
     expect(by.get('p_humano')).toMatchObject({ state: 'blocked', reason: 'falta a senha do banco.' });
   });
 
+  it('régua única: só o que é do Victor levanta a mão; a fila do Manager decide quando já deu o veredito', () => {
+    const path = join(tmp.dir, 'kanban', 'boards', 'hermes-lab', 'kanban.db');
+    const reasons: Record<string, string> = {
+      t_aa01: 'O que travou: falta escolher a cor.\nVocê faz: responda "azul" ao Hermes.', // dúvida → Manager
+      t_aa02: 'O que travou: a fase 5 está pronta.\nVocê faz: rode bash install-fase5.sh para instalar a fase 5.',
+      t_aa03: 'O que travou: preciso que você escolha a cor.', // sem "Você faz" → Manager
+      t_aa04: 'O que travou: a API cobra.\nVocê faz: cadastre o cartão de crédito no painel.',
+      t_aa05: 'O que travou: falta a chave.\nVocê faz: gere a chave paga no painel.', // regra diz Victor, a fila diz Manager
+    };
+    makeDb(
+      path,
+      Object.keys(reasons).map((id) => ({ id, title: `cartão ${id}`, status: 'blocked', assignee: `p_${id}` })),
+      Object.entries(reasons).map(([id, reason]) => [id, 'blocked', { reason }, S - 120] as [string, string, unknown, number]),
+    );
+    const linha = (task: string, destino: string) =>
+      JSON.stringify({ tipo: 'regua', board: 'hermes-lab', task, motivo: hashMotivo(reasons[task]), destino, categoria: destino, fonte: 'jev', confianca: 0.9 });
+    const fila = parseReguaFila([linha('t_aa01', 'victor'), linha('t_aa05', 'manager')].join('\n'));
+    const db = openReadOnly(path);
+    const sem = pickCards(readBoard(db, 'hermes-lab', NOW).cards);
+    const com = pickCards(readBoard(db, 'hermes-lab', NOW, fila).cards);
+    db.close();
+    const estados = (m: Map<string, { state: string }>) => Object.fromEntries(Object.keys(reasons).map((id) => [id, m.get(`p_${id}`)!.state]));
+    expect(estados(sem)).toEqual({ t_aa01: 'internal', t_aa02: 'internal', t_aa03: 'internal', t_aa04: 'blocked', t_aa05: 'blocked' });
+    expect(estados(com)).toEqual({ t_aa01: 'blocked', t_aa02: 'internal', t_aa03: 'internal', t_aa04: 'blocked', t_aa05: 'internal' });
+    // placa amarela sem rótulo conhecido mostra a 1ª linha do motivo
+    expect(sem.get('p_t_aa03')!.reason).toBe('preciso que você escolha a cor.');
+  });
+
+  it('régua no escritório: destino=manager aparece como "Manager resolvendo", sem mão nem "Responda ao Hermes"', () => {
+    makeDb(
+      join(tmp.dir, 'kanban', 'boards', 'produto', 'kanban.db'),
+      [{ id: 't_b1', title: 'Portão da spec', status: 'blocked', assignee: 'architect' }],
+      [['t_b1', 'blocked', { reason: 'O que travou: spec pronta.\nVocê faz: aprove a spec no portão de produto.' }, S - 60]],
+    );
+    const office = new Office({ names: new NameStore(null), version: '9.9.9', startedAt: NOW, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => NOW });
+    new HermesSource({ office, root: tmp.dir, now: () => NOW }).poll();
+    const a = office.list().find((x) => x.name === 'architect')!;
+    expect(a).toMatchObject({ status: 'working', hermes: { state: 'internal' } });
+    expect(a.waitingFor).toBeUndefined();
+    expect(a.activity?.text).toMatch(/^Manager resolvendo/);
+  });
+
   it('internalBlock: PR esperando merge só é interno nos boards do automerge (como no nanny)', () => {
     const r = 'O que travou: falta mergear o PR #7.\nVocê faz: clique em Merge.';
     expect(internalBlock('openfinance', r)).toBe('PR aprovado esperando merge');
@@ -306,7 +349,8 @@ describe('HermesSource no escritório', () => {
     expect(byName.get('dev #1')).toMatchObject({ hermesProfile: 'dev', hermesSlot: 1 });
     expect(byName.has('dev')).toBe(false);
     expect(byName.get('architect')).toMatchObject({ status: 'waiting', waitingFor: 'falta escolher a porta.', hermes: { state: 'blocked' } });
-    expect(byName.get('reviewer')).toMatchObject({ status: 'waiting', hermes: { state: 'guarded', board: 'openhealth' } });
+    expect(byName.get('reviewer')).toMatchObject({ status: 'working', hermes: { state: 'guarded', board: 'openhealth' } }); // placa vermelha é do Manager: sem mão
+    expect(byName.get('reviewer')!.waitingFor).toBeUndefined();
     expect(byName.get('devgemini')).toMatchObject({ status: 'working', hermes: { state: 'delivering' } });
     expect(byName.get('qa')).toMatchObject({ status: 'idle' });
     expect(byName.get('qa')!.hermes).toBeUndefined();
@@ -349,8 +393,8 @@ describe('HermesSource no escritório', () => {
         { id: 't_prx', title: 'próximo do judge', status: 'running', assignee: 'judge', started_at: S - 600, last_heartbeat_at: S - 30 },
       ],
       [
-        ['t_34', 'blocked', { reason: 'O que travou: preciso que você escolha o modelo.' }, S - 420],
-        ['t_out', 'blocked', { reason: 'O que travou: falta a senha do banco.' }, S - 400],
+        ['t_34', 'blocked', { reason: 'O que travou: preciso que você escolha o modelo.\nVocê faz: assine o plano pago do modelo.' }, S - 420],
+        ['t_out', 'blocked', { reason: 'O que travou: falta a senha do banco.\nVocê faz: digite a senha do banco.' }, S - 400],
       ],
     );
     let now = NOW;
@@ -552,7 +596,7 @@ describe('um personagem por trabalhador (modelo 1: nome por vaga)', () => {
         running('t_d1', 'dev', 500),
         { id: 't_blk', title: 'precisa de você', status: 'blocked', assignee: 'dev' },
       ],
-      [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a cor.' }, S - 60]],
+      [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a cor.\nVocê faz: pague a fatura da licença da fonte.' }, S - 60]],
     );
     const o = office();
     new HermesSource({ office: o, root: tmp.dir, now: () => NOW }).poll();

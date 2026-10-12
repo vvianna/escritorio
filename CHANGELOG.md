@@ -31,6 +31,16 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- Hermes: "Precisa de você / Responda ao Hermes no Telegram" segue a régua ÚNICA "precisa do Victor?" do time (a mesma
+  do kanban-nanny, do manager-voz e do manager-fila; `server/sources/hermes-regua.ts`). Só levanta a mão o bloqueio
+  que diz o que o Victor faz ("Você faz") e cai em dinheiro (gasto, assinatura, compra, cartão, chave paga), mensagem
+  em nome dele, apagar dado dele ou o que só ele faz (senha, login, conta nova, 2FA, ação física). Todo o resto
+  (instalar fase, reiniciar o gateway, portão de produto/aprovar spec, reatribuir, destravar, conflito, PR, guarda,
+  bloqueio sem "Você faz" e a dúvida) vira a placa amarela "Manager resolvendo", sem mão. Quando a fila do Manager já
+  deu o veredito daquele bloqueio (campo `regua`, que pode vir do Jev), vale o dela: `tools/copiar-uso.sh` copia SÓ
+  cartão, hash do motivo e destino para `~/.cache/escritorio/regua.jsonl` (`ESCRITORIO_REGUA`). A placa vermelha
+  (3 falhas, erro do sistema, guarda repetida, sem sinal de vida) também é do Manager: continua vermelha, mas sem mão,
+  sem sino e sem "Responda ao Hermes no Telegram".
 - Hermes: a guarda de PR repetida (`active_pr`, 5+ em 10 min) não aparece mais como "Precisa de você / Responda ao
   Hermes no Telegram". Quem solta essa guarda é o Manager (pl-opens-maos), então ela vira a placa amarela "Manager
   resolvendo", sem mão levantada. Qualquer guarda repetida some assim que o cartão é reatribuído ou o worker inicia
