@@ -126,7 +126,7 @@ describe('API HTTP', () => {
     await readUntil(/event: feed\n/);
     expect(text).toMatch(/^retry: 2000\n\nevent: snapshot\ndata: \{/);
     env.office.addActivity('.claude:1', { id: 'act-x', at: Date.now(), kind: 'read', icon: '📖', text: 'Lendo a.ts' }, true);
-    // Espera o feed (o snapshot, que também traz a atividade, pode chegar num pedaço separado antes dele).
+    // Espera o feed (o snapshot com a atividade pode chegar antes dele e também traz "act-x").
     await readUntil(/event: feed\ndata: \[\{"id":"act-x"/);
     expect(text).toContain('event: feed\ndata: [{"id":"act-x"');
     ctrl.abort();
