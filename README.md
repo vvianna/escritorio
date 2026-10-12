@@ -9,10 +9,16 @@
 >   terminal, histórico, personagem, renomear sala, demo, Codex) respondem 404 e nenhuma variável de ambiente religa
 >   isso em execução (`server/somente-leitura.ts`). Ex.: `ESCRITORIO_SOMENTE_LEITURA=1 docker compose up -d --build`;
 > - **só Tailscale**: o `docker-compose.yml` publica a porta (padrão 4747) só em `100.83.157.12` (nada em `0.0.0.0`/`127.0.0.1`);
-> - **montagens read-only**: `bash tools/gerar-montagens.sh` gera o `docker-compose.override.yml` só com os `kanban.db`
->   e `state.db` do Hermes (nunca `.env`, `auth.json`, `config.yaml`); `/data` e `/tmp` ficam em tmpfs.
+> - **montagens read-only**: `bash tools/gerar-montagens.sh` gera o `docker-compose.override.yml` só com PASTAS e
+>   arquivos sem segredo: `~/.hermes/kanban/`, o `kanban.db` da raiz, `~/.cache/escritorio/` e `time/nomes.json`
+>   (nunca `.env`, `auth.json`, `config.yaml`, `profiles/` nem `-wal`/`-shm`); `/data` e `/tmp` ficam em tmpfs;
+> - **uso por assinatura sem montar `profiles/`**: `tools/copiar-uso.sh` roda no host (cron do Hermes, 2 em 2 min) e
+>   grava em `~/.cache/escritorio/uso.jsonl` só o metadado dos `state.db` (provedor, modelo, tokens, custo, horários,
+>   perfil), lidos com `mode=ro`. Agendar uma vez (o cron do Hermes só roda scripts de `~/.hermes/scripts/`):
+>   `printf '#!/usr/bin/env bash\nexec bash <repo>/tools/copiar-uso.sh "$@"\n' > ~/.hermes/scripts/escritorio-copiar-uso.sh`
+>   e `hermes cron create --name escritorio-copiar-uso --script escritorio-copiar-uso.sh --no-agent --deliver local 'every 2m'`.
 >
-> Ligar: `bash tools/gerar-montagens.sh && docker compose up -d --build`. Desligar: `docker compose down`.
+> Ligar: `bash tools/copiar-uso.sh && bash tools/gerar-montagens.sh && docker compose up -d --build`. Desligar: `docker compose down`.
 > Não use `npm run docker:up` aqui (é o fluxo do Habblaud, que monta as pastas do Claude Code).
 > O texto abaixo é o README original do Habblaud.
 

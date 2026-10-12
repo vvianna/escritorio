@@ -89,9 +89,31 @@ export function discoverBoards(root: string): HermesBoard[] {
   return out;
 }
 
-/** Abre só para leitura (URI `mode=ro`, além do readOnly do node:sqlite). */
+/**
+ * Abre só para leitura (URI `mode=ro`, além do readOnly do node:sqlite).
+ *
+ * Montagem `:ro` (pasta ~/.hermes/kanban no container): banco em WAL sem o `-shm` no disco (nenhum processo do
+ * Hermes com ele aberto) não abre em `mode=ro`, porque o SQLite precisaria criar o `-shm` numa pasta só leitura.
+ * Nesse caso não há escritor, o `-wal` já foi aplicado e apagado e o arquivo principal está completo: reabre com
+ * `immutable=1` (lê o arquivo como está, sem trava nem `-shm`). Se ainda assim vier algo pela metade, o próximo
+ * ciclo relê.
+ */
 export function openReadOnly(path: string): DatabaseSync {
-  return new DatabaseSync(`file:${encodeURI(path).replace(/[?#]/g, encodeURIComponent)}?mode=ro`, { readOnly: true });
+  const uri = `file:${encodeURI(path).replace(/[?#]/g, encodeURIComponent)}?mode=ro`;
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(uri, { readOnly: true });
+    db.prepare('SELECT 1 FROM sqlite_master LIMIT 1').get();
+    return db;
+  } catch (err) {
+    try {
+      db?.close();
+    } catch {
+      /* já fechado */
+    }
+    if (!existsSync(path)) throw err;
+    return new DatabaseSync(`${uri}&immutable=1`, { readOnly: true });
+  }
 }
 
 function payloadOf(raw: unknown): Record<string, unknown> {

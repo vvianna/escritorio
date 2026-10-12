@@ -3,15 +3,17 @@
 # Regras (spec time-de-agentes, fase 4, escritorio.md "Regras de segurança"):
 #   - porta publicada SÓ no IP Tailscale do Gargantua (100.83.157.12): nada em 0.0.0.0 nem em 127.0.0.1,
 #     nada de túnel. O IP fica fixo aqui de propósito (não vem do .env);
-#   - nenhuma montagem gravável: os bancos do Hermes entram read-only pelo docker-compose.override.yml
-#     gerado por `bash tools/gerar-montagens.sh` (só kanban.db e state.db, nunca .env/auth.json/config.yaml);
+#   - nenhuma montagem gravável: o Hermes entra read-only pelo docker-compose.override.yml gerado por
+#     `bash tools/gerar-montagens.sh` (pastas kanban/ e ~/.cache/escritorio, kanban.db da raiz e time/nomes.json;
+#     nunca .env/auth.json/config.yaml, nunca profiles/ nem -wal/-shm). O uso por assinatura chega pela cópia
+#     ~/.cache/escritorio/uso.jsonl que tools/copiar-uso.sh gera no host (cron do Hermes, 2 em 2 min);
 #     o estado do próprio escritório (/data) e o /tmp ficam em tmpfs (memória, some ao parar);
 #   - trava somente leitura (server/somente-leitura.ts) DESLIGADA por padrão: as rotas de escrita do Habblaud
 #     funcionam como antes. Para ligar, só com flag explícita no build:
 #     `ESCRITORIO_SOMENTE_LEITURA=1 docker compose up -d --build` (aí nada em execução religa a escrita);
 #   - NÃO use `npm run docker:up` (é o fluxo do Habblaud: monta as pastas do Claude Code).
 #
-# Ligar é passo do Victor: `bash tools/gerar-montagens.sh && docker compose up -d --build`.
+# Ligar é passo do Victor: `bash tools/copiar-uso.sh && bash tools/gerar-montagens.sh && docker compose up -d --build`.
 # Desligar (= desfazer a fase 4): `docker compose down`.
 name: escritorio
 
@@ -38,8 +40,12 @@ services:
       # Saídas para a internet (timelapse/GitHub) seguem desligadas por padrão; "1" no .env religa.
       HABBLAUD_TIMELINE: ${HABBLAUD_TIMELINE:-0}
       HABBLAUD_UPDATE_CHECK: ${HABBLAUD_UPDATE_CHECK:-0}
-      # Onde as fontes do Hermes (server/sources/hermes.ts) acham os bancos montados pelo override.
+      # Onde as fontes do Hermes (server/sources/hermes.ts) acham os kanban montados pelo override.
       HERMES_ROOT: /hermes
+      # Gasto por assinatura (sources/hermes-uso.ts): cópia só-metadado feita no host por tools/copiar-uso.sh
+      # (a pasta profiles/ do Hermes, com .env/auth.json, nunca entra no container).
+      ESCRITORIO_USO: /cache/escritorio/uso.jsonl
+      ESCRITORIO_AGY_COTA: /cache/escritorio/agy-cota.tsv
       ESCRITORIO_PLANTAO_DIR: /plantao/incidentes
     volumes:
       - type: bind

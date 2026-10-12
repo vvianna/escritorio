@@ -1,6 +1,6 @@
 // Trava do container: bind só no IP Tailscale, nenhuma montagem gravável, nenhum segredo montado.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tempDir } from './fixtures';
@@ -41,17 +41,21 @@ describe('docker-compose.yml do escritório', () => {
 });
 
 describe('tools/gerar-montagens.sh', () => {
-  it('monta só kanban.db/state.db (e -wal/-shm existentes), read-only, nunca os segredos do perfil', () => {
+  it('monta pastas (kanban/, cache/escritorio/) e nomes.json, read-only, nunca -wal/-shm nem os segredos do perfil', () => {
     const tmp = tempDir();
     try {
       const h = join(tmp.dir, 'hermes');
+      const cache = join(tmp.dir, 'cache', 'escritorio'); // não existe: o script cria
       const arquivos = [
         'kanban.db',
         'kanban.db-wal',
         'kanban.db-shm',
         'kanban/boards/openfinance/kanban.db',
+        'kanban/boards/openfinance/kanban.db-wal',
         'kanban/boards/openfinance/board.json',
+        'time/nomes.json',
         'state.db',
+        'state.db-wal',
         '.env',
         'auth.json',
         'config.yaml',
@@ -68,31 +72,50 @@ describe('tools/gerar-montagens.sh', () => {
       }
       const out = join(tmp.dir, 'override.yml');
       const msg = execFileSync('bash', [join(ROOT, 'tools/gerar-montagens.sh')], {
-        env: { ...process.env, ESCRITORIO_HERMES_DIR: h, ESCRITORIO_OVERRIDE: out },
+        env: { ...process.env, ESCRITORIO_HERMES_DIR: h, ESCRITORIO_CACHE_DIR: cache, ESCRITORIO_OVERRIDE: out },
         encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      expect(msg).toContain('ok: 7 arquivos');
+      expect(msg).toContain('ok: 4 montagens');
+      expect(existsSync(cache)).toBe(true);
       const y = readFileSync(out, 'utf8');
-      const targets = [...y.matchAll(/target: "([^"]+)"/g)].map((m) => m[1]).sort();
-      expect(targets).toEqual(
-        [
-          '/hermes/kanban.db',
-          '/hermes/kanban.db-shm',
-          '/hermes/kanban.db-wal',
-          '/hermes/kanban/boards/openfinance/kanban.db',
-          '/hermes/profiles/dev/state.db',
-          '/hermes/profiles/dev/state.db-wal',
-          '/hermes/state.db',
-        ].sort(),
-      );
-      expect((y.match(/read_only: true/g) ?? []).length).toBe(7);
-      expect((y.match(/create_host_path: false/g) ?? []).length).toBe(7);
-      const sources = [...y.matchAll(/source: "([^"]+)"/g)].map((m) => m[1]);
-      expect(sources).toHaveLength(7);
-      for (const s of sources) expect(s.startsWith(h + '/')).toBe(true);
-      expect(sources.map((s) => s.slice(h.length)).join('\n')).not.toMatch(/\.env|auth\.json|config\.yaml|board\.json|\.lock/);
+      const pares = [...y.matchAll(/source: "([^"]+)"\n\s+target: "([^"]+)"/g)].map((m) => [m[1].replace(tmp.dir, '<tmp>'), m[2]]);
+      expect(pares).toEqual([
+        ['<tmp>/hermes/kanban', '/hermes/kanban'],
+        ['<tmp>/hermes/kanban.db', '/hermes/kanban.db'],
+        ['<tmp>/cache/escritorio', '/cache/escritorio'],
+        ['<tmp>/hermes/time/nomes.json', '/hermes/time/nomes.json'],
+      ]);
+      expect((y.match(/read_only: true/g) ?? []).length).toBe(4);
+      expect((y.match(/create_host_path: false/g) ?? []).length).toBe(4);
+      const semCabecalho = y.split('\n').filter((l) => !l.startsWith('#')).join('\n').replaceAll(tmp.dir, '<tmp>');
+      expect(semCabecalho).not.toMatch(/-wal|-shm|state\.db|profiles|\.env\b|auth\.json|config\.yaml|board\.json|\.lock/);
     } finally {
       tmp.cleanup();
     }
+  });
+
+  it('sem nomes.json nem kanban.db da raiz: só as pastas', () => {
+    const tmp = tempDir();
+    try {
+      const h = join(tmp.dir, 'hermes');
+      mkdirSync(join(h, 'kanban', 'boards', 'x'), { recursive: true });
+      const out = join(tmp.dir, 'override.yml');
+      execFileSync('bash', [join(ROOT, 'tools/gerar-montagens.sh')], {
+        env: { ...process.env, ESCRITORIO_HERMES_DIR: h, ESCRITORIO_CACHE_DIR: join(tmp.dir, 'c'), ESCRITORIO_OVERRIDE: out },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const targets = [...readFileSync(out, 'utf8').matchAll(/target: "([^"]+)"/g)].map((m) => m[1]);
+      expect(targets).toEqual(['/hermes/kanban', '/cache/escritorio']);
+    } finally {
+      tmp.cleanup();
+    }
+  });
+});
+
+describe('docker-compose.yml: fonte de uso pela cópia', () => {
+  it('aponta ESCRITORIO_USO e ESCRITORIO_AGY_COTA para /cache/escritorio', () => {
+    expect(semComentarios).toMatch(/ESCRITORIO_USO: \/cache\/escritorio\/uso\.jsonl/);
+    expect(semComentarios).toMatch(/ESCRITORIO_AGY_COTA: \/cache\/escritorio\/agy-cota\.tsv/);
   });
 });
