@@ -33,6 +33,7 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { hermesUsoReader } from './sources/hermes-uso';
 import { discoverBoards, HermesSource } from './sources/hermes';
 import { createBuildReader } from './build';
 import { SOMENTE_LEITURA } from './somente-leitura';
@@ -210,6 +211,7 @@ const api = createApiHandler({
   stats,
   updates,
   somenteLeitura: SOMENTE_LEITURA,
+  hermesUso: hermesUsoReader(process.env, config.home),
 });
 
 const server = http.createServer();
