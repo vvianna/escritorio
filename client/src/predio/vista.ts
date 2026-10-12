@@ -93,6 +93,7 @@ export class VistaPredio implements UiComponent {
   private assinatura = '';
   private readonly crachas = new Map<string, Cracha>();
   private escala = 1;
+  private margem = { l: 0, r: 0 };
   private detalhe = false;
   private raf = 0;
   private ultimo = 0;
@@ -130,7 +131,8 @@ export class VistaPredio implements UiComponent {
     menos.addEventListener('click', () => this.zoomCentro(1 / FATOR_ZOOM));
     this.zoom.append(mais, menos);
 
-    this.el.append(this.camada, this.alterna, this.zoom);
+    // alternador primeiro no DOM: vem antes das placas na ordem do Tab
+    this.el.append(this.alterna, this.camada, this.zoom);
 
     new ResizeObserver(() => this.posicionar()).observe(this.topbar);
     addEventListener('resize', () => {
@@ -141,6 +143,15 @@ export class VistaPredio implements UiComponent {
       }
     });
     document.addEventListener('visibilitychange', () => this.ligarLoop());
+    // A área livre muda quando a lista lateral ou a gaveta abrem/fecham (--free-* no root).
+    new MutationObserver(() => {
+      if (this.camada.hidden) return;
+      const { l, r } = this.margem;
+      const ev = this.escalaVisao();
+      if (l === this.margem.l && r === this.margem.r) return;
+      this.aplicarEscala(this.detalhe ? this.escala : ev);
+      this.desenharAgora();
+    }).observe(this.ctx.root, { attributes: true, attributeFilter: ['style'] });
 
     this.vista = lerVista();
     this.aplicarVista();
@@ -288,17 +299,31 @@ export class VistaPredio implements UiComponent {
 
   // ------------------------------------------------------------------ câmera
 
+  /** Margens laterais da área livre (--free-left/--free-right, as mesmas que as Salas usam). */
+  private livre(): { l: number; r: number } {
+    const cs = getComputedStyle(this.ctx.root);
+    const px = (n: string) => Math.max(0, parseFloat(cs.getPropertyValue(n)) || 0);
+    const l = px('--free-left');
+    const r = px('--free-right');
+    this.margem = l + r < this.camada.clientWidth - 80 ? { l, r } : { l: 0, r: 0 };
+    return this.margem;
+  }
   private escalaVisao(): number {
-    return Math.max(0.5, Math.min(1.5, this.camada.clientWidth / WPX));
+    const { l, r } = this.livre();
+    return Math.max(0.5, Math.min(1.5, (this.camada.clientWidth - l - r) / WPX));
   }
   private largPalco(): number {
-    return Math.max(this.camada.clientWidth, Math.round(WPX * this.escala));
+    const { l, r } = this.margem;
+    return Math.max(this.camada.clientWidth, Math.round(WPX * this.escala) + l + r);
   }
+  /** O prédio fica centrado na área livre (fora da lista lateral e da gaveta). */
   private offX(): number {
-    return Math.round((this.largPalco() - WPX * this.escala) / 2);
+    const { l, r } = this.margem;
+    return l + Math.round((this.largPalco() - l - r - WPX * this.escala) / 2);
   }
 
   private aplicarEscala(s: number): void {
+    this.livre();
     this.escala = s;
     const h = (this.m?.cena.alturaT ?? 0) * TILE;
     this.palco.style.width = `${this.largPalco()}px`;

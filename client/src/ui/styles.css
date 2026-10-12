@@ -8165,6 +8165,11 @@ html.is-replay #world {
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
+/* Sobre a cena o fundo 22% transparente do .ui-hsel some: fundo opaco como o .pv-selo do protótipo. */
+.pred-selo.ui-hsel:not(.ui-hsel--reserva) {
+  background: color-mix(in srgb, var(--hsel) 30%, #12151d);
+  color: #f3f5fa;
+}
 .pred-selo--portao {
   display: inline-flex;
   align-items: center;
