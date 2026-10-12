@@ -31,6 +31,63 @@ function tilesDaEtapa(e: Extract<EtapaRota, { tipo: 'andar' }>): Tile[] {
   return [e.de, ...e.caminho];
 }
 
+const indiceAndar = (c: Cena, id: string): number => c.andares.findIndex((a) => a.id === id);
+
+function expectTrechoAndar(
+  etapa: EtapaRota,
+  andar: AndarCena,
+  de: Tile,
+  para: Tile,
+): asserts etapa is Extract<EtapaRota, { tipo: 'andar' }> {
+  expect(etapa).toMatchObject({ tipo: 'andar', andar: andar.id, de, para });
+  const caminho = (etapa as Extract<EtapaRota, { tipo: 'andar' }>).caminho;
+  if (de.tx !== para.tx || de.ty !== para.ty) expect(caminho.at(-1)).toEqual(para);
+}
+
+function expectRoteiro(
+  c: Cena,
+  origemAndar: AndarCena,
+  origem: Tile,
+  destinoAndar: AndarCena,
+  destino: Tile,
+): EtapaRota[] {
+  const rota = rotaPredio(
+    c,
+    { andar: origemAndar.id, tile: origem },
+    { andar: destinoAndar.id, tile: destino },
+  );
+
+  if (origemAndar.id === destinoAndar.id) {
+    expect(rota.etapas.map((e) => e.tipo), origemAndar.id).toEqual(['andar']);
+    expectTrechoAndar(rota.etapas[0]!, origemAndar, origem, destino);
+    return rota.etapas;
+  }
+
+  const msg = `${origemAndar.id} → ${destinoAndar.id}`;
+  expect(rota.etapas.map((e) => e.tipo), msg).toEqual(['andar', 'fila', 'embarque', 'desembarque', 'andar']);
+  expectTrechoAndar(rota.etapas[0]!, origemAndar, origem, c.paradas[origemAndar.id].porta);
+  expect(rota.etapas[1], msg).toEqual({
+    tipo: 'fila',
+    andar: origemAndar.id,
+    porta: c.paradas[origemAndar.id].porta,
+    fila: c.paradas[origemAndar.id].fila,
+  });
+  expect(rota.etapas[2], msg).toEqual({
+    tipo: 'embarque',
+    andar: origemAndar.id,
+    indiceAndar: indiceAndar(c, origemAndar.id),
+    porta: c.paradas[origemAndar.id].porta,
+  });
+  expect(rota.etapas[3], msg).toEqual({
+    tipo: 'desembarque',
+    andar: destinoAndar.id,
+    indiceAndar: indiceAndar(c, destinoAndar.id),
+    porta: c.paradas[destinoAndar.id].porta,
+  });
+  expectTrechoAndar(rota.etapas[4]!, destinoAndar, c.paradas[destinoAndar.id].porta, destino);
+  return rota.etapas;
+}
+
 describe('rotaPredio', () => {
   it('mesmo andar devolve só caminho direto, sem fila nem elevador', () => {
     const c = cena();
@@ -47,33 +104,48 @@ describe('rotaPredio', () => {
 
   it('troca de andar: hall → fila → embarque → desembarque → destino', () => {
     const c = cena();
-    const origem = tileDoAndar(c.andares.find((a) => a.id === 'ti')!, c);
-    const destino = tileDoAndar(c.andares.find((a) => a.id === 'produto')!, c);
+    const origemAndar = c.andares.find((a) => a.id === 'ti')!;
+    const destinoAndar = c.andares.find((a) => a.id === 'produto')!;
+    const origem = tileDoAndar(origemAndar, c);
+    const destino = tileDoAndar(destinoAndar, c);
 
-    const rota = rotaPredio(c, { andar: 'ti', tile: origem }, { andar: 'produto', tile: destino });
-
-    expect(rota.etapas.map((e) => e.tipo)).toEqual(['andar', 'fila', 'embarque', 'desembarque', 'andar']);
-    expect(rota.etapas[0]).toMatchObject({ tipo: 'andar', andar: 'ti', de: origem, para: c.paradas.ti.porta });
-    expect(rota.etapas[1]).toEqual({ tipo: 'fila', andar: 'ti', porta: c.paradas.ti.porta, fila: c.paradas.ti.fila });
-    expect(rota.etapas[2]).toEqual({ tipo: 'embarque', andar: 'ti', indiceAndar: 2, porta: c.paradas.ti.porta });
-    expect(rota.etapas[3]).toEqual({ tipo: 'desembarque', andar: 'produto', indiceAndar: 1, porta: c.paradas.produto.porta });
-    expect(rota.etapas[4]).toMatchObject({ tipo: 'andar', andar: 'produto', de: c.paradas.produto.porta, para: destino });
+    expectRoteiro(c, origemAndar, origem, destinoAndar, destino);
   });
 
-  it('passeio à toa entre andares também usa elevador', () => {
+  it('todos os pares em andares diferentes seguem o roteiro completo do elevador', () => {
     const c = cena();
-    const copa = c.andares.find((a) => a.id === 'produto')!.passeio.find((a) => a.id.includes(':copa'))!;
-    const recepcao = c.salaDe.get('recepcao')!;
 
-    const rota = rotaPredio(
-      c,
-      { andar: 'produto', tile: primeiroTile(copa, c, c.paradas.produto.porta) },
-      { andar: 'terreo', tile: primeiroTile(recepcao, c, c.paradas.terreo.porta) },
-    );
+    for (const origemAndar of c.andares) {
+      for (const destinoAndar of c.andares) {
+        if (origemAndar.id === destinoAndar.id) continue;
+        expectRoteiro(
+          c,
+          origemAndar,
+          tileDoAndar(origemAndar, c),
+          destinoAndar,
+          tileDoAndar(destinoAndar, c),
+        );
+      }
+    }
+  });
 
-    expect(rota.etapas.map((e) => e.tipo)).toEqual(['andar', 'fila', 'embarque', 'desembarque', 'andar']);
-    expect(rota.etapas[2]).toMatchObject({ tipo: 'embarque', andar: 'produto' });
-    expect(rota.etapas[3]).toMatchObject({ tipo: 'desembarque', andar: 'terreo' });
+  it('passeio à toa cobre todos os destinos de passeio a partir de cada andar', () => {
+    const c = cena();
+
+    for (const origemAndar of c.andares) {
+      const origem = tileDoAndar(origemAndar, c);
+      for (const destinoAndar of c.andares) {
+        for (const destinoArea of destinoAndar.passeio) {
+          expectRoteiro(
+            c,
+            origemAndar,
+            origem,
+            destinoAndar,
+            primeiroTile(destinoArea, c, c.paradas[destinoAndar.id].porta),
+          );
+        }
+      }
+    }
   });
 
   it('nenhum trecho a pé cruza a fronteira entre andares fora do elevador', () => {
