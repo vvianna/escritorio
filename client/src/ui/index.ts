@@ -36,6 +36,7 @@ import { UpdateToaster } from './version';
 import { TopBar } from './topbar';
 import { UpdateBanner } from './update';
 import { FreeArea } from './viewport';
+import { montarPrototipo, PROTOTIPO_ATIVO } from '../prototipo/predio-animado';
 
 /** Relógio dos tempos relativos ("há 5 s"). */
 const CLOCK_MS = 5_000;
@@ -186,6 +187,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi)
     narrow: ctx.isNarrow(),
   }));
   drawer.onLayoutChange = () => applyLayout();
+  // PROTÓTIPO (branch prototipo/predio-animado, descartável): ?prototipo=predio-animado&opcao=a|b
+  if (PROTOTIPO_ATIVO) montarPrototipo({ root, topbar: topbar.el, world });
 
   const components: UiComponent[] = [topbar, sidebar, drawer, terminal, history, feed, toasts, settings, empty, banner, tip, notifier, splash, timelapse, sound, day, updateToaster, predio];
 
