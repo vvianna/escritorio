@@ -2,7 +2,8 @@
 // personagem por perfil no escritório, na sala do board do cartão que ele mostra (escritorio.md, "O que vira o quê").
 //
 // Só leitura: cada ciclo abre os bancos com SQLite `mode=ro` (node:sqlite, readOnly) e fecha em seguida. Lê só as
-// tabelas `tasks` e `task_events` do kanban (colunas listadas nas consultas abaixo). Os state.db dos perfis NÃO são
+// tabelas `tasks`, `task_runs`, `task_events` e `task_comments` do kanban (colunas listadas nas consultas abaixo; dos
+// comentários e heartbeats só a nota mais recente do run, para a Atividade). Os state.db dos perfis NÃO são
 // lidos aqui (a fonte de sessões/uso é outra). Nunca ler messages, system_prompt, title de sessão, chat_id, user_id,
 // .env, auth.json nem config.yaml.
 //
@@ -34,7 +35,7 @@
 // mudou" na Atividade: vêm da cópia só-metadado cadeiras.jsonl (tools/copiar-uso.sh, ver sources/hermes-cadeira.ts).
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { AgentStatus, HermesCard, HermesCardState, HermesModelo, SourceInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
@@ -182,6 +183,51 @@ export function firstLine(reason: string | undefined): string | undefined {
   return clean.length > 160 ? `${clean.slice(0, 159)}…` : clean;
 }
 
+export const NOTA_MAX = 200;
+
+/** Texto de nota numa linha só (espaços juntados, sem marcação de título/negrito), até NOTA_MAX caracteres. */
+export function notaCurta(text: string | null | undefined): string | undefined {
+  const clean = (text ?? '')
+    .replace(/\\n/g, '\n')
+    .replace(/^\s*#+\s*/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return undefined;
+  return clean.length > NOTA_MAX ? `${clean.slice(0, NOTA_MAX - 1)}…` : clean;
+}
+
+/**
+ * O que o perfil está fazendo no cartão: a nota mais recente entre heartbeat (payload.note) e comentário desde `since`
+ * (início do run atual; 0 = qualquer um); sem nenhum, a 1ª linha do corpo. Só tasks/task_events/task_comments.
+ */
+function notaDoCartao(
+  q: { beat: StatementSync; comment: StatementSync | null; body: StatementSync },
+  taskId: string,
+  since: number,
+): { nota: string; notaEm: number } | undefined {
+  let best: { nota: string; notaEm: number } | undefined;
+  for (const r of q.beat.all(taskId, since) as Array<{ payload: string | null; created_at: number }>) {
+    const nota = notaCurta(str(payloadOf(r.payload).note));
+    if (nota) {
+      best = { nota, notaEm: r.created_at * 1000 };
+      break;
+    }
+  }
+  const c = q.comment?.get(taskId, since) as { body: string | null; created_at: number } | undefined;
+  const cn = notaCurta(c?.body);
+  if (c && cn && (!best || c.created_at * 1000 >= best.notaEm)) best = { nota: cn, notaEm: c.created_at * 1000 };
+  if (best) return best;
+  const t = q.body.get(taskId) as { body: string | null; created_at: number } | undefined;
+  const line = (t?.body ?? '')
+    .replace(/\\n/g, '\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .find(Boolean);
+  const nota = notaCurta(line);
+  return nota && t ? { nota, notaEm: t.created_at * 1000 } : undefined;
+}
+
 interface TaskRow {
   id: string;
   title: string;
@@ -200,6 +246,19 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
   const cards: ProfileCard[] = [];
   const runBeat = db.prepare('SELECT COALESCE(last_heartbeat_at, started_at) AS at FROM task_runs WHERE id=?');
   const runStart = db.prepare('SELECT started_at FROM task_runs WHERE id=?');
+  let comment: StatementSync | null = null;
+  try {
+    comment = db.prepare('SELECT body, created_at FROM task_comments WHERE task_id=? AND created_at >= ? ORDER BY id DESC LIMIT 1');
+  } catch {
+    comment = null; // kanban.db sem a tabela de comentários
+  }
+  const notaQ = {
+    beat: db.prepare(
+      "SELECT payload, created_at FROM task_events WHERE task_id=? AND kind='heartbeat' AND payload IS NOT NULL AND created_at >= ? ORDER BY id DESC LIMIT 20",
+    ),
+    comment,
+    body: db.prepare('SELECT body, created_at FROM tasks WHERE id=?'),
+  };
   const add = (profile: string | null | undefined, task: TaskRow, state: HermesCardState, at: number, reason?: string) => {
     if (!profile) return;
     const card: ProfileCard = { profile, board, taskId: task.id, title: task.title, state, at };
@@ -216,6 +275,8 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
       }
       card.runStartedAt = run ?? card.liveSince;
     }
+    const nota = notaDoCartao(notaQ, task.id, card.runStartedAt ?? 0);
+    if (nota) Object.assign(card, nota);
     cards.push(card);
   };
 
@@ -578,6 +639,7 @@ export class HermesSource implements AgentSource {
           detail: `${ch.name} ${troca} · ${card.board} · ${card.taskId} · ${cur.provider}/${cur.model}`,
           tool: 'Hermes',
           at: cur.em ?? now,
+          cartao: { board: card.board, taskId: card.taskId },
         },
         false,
       );
@@ -639,7 +701,19 @@ export class HermesSource implements AgentSource {
     }
     const prev = office.get(id)?.hermes;
     this.resolveHand(id, cards, !card);
-    office.setHermes(id, card ? { board: card.board, taskId: card.taskId, title: card.title, state: card.state, ...(card.reason ? { reason: card.reason } : {}) } : undefined);
+    office.setHermes(
+      id,
+      card
+        ? {
+            board: card.board,
+            taskId: card.taskId,
+            title: card.title,
+            state: card.state,
+            ...(card.reason ? { reason: card.reason } : {}),
+            ...(card.nota ? { nota: card.nota, notaEm: card.notaEm } : {}),
+          }
+        : undefined,
+    );
     if (card && (prev?.taskId !== card.taskId || prev?.state !== card.state)) {
       office.addActivity(
         id,
@@ -651,6 +725,7 @@ export class HermesSource implements AgentSource {
           detail: `${card.board} · ${card.taskId}${card.reason ? ` · ${card.reason}` : ''}`,
           tool: 'Hermes',
           at: card.at * 1000,
+          cartao: { board: card.board, taskId: card.taskId },
         },
         true,
       );

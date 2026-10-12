@@ -1,7 +1,7 @@
 // Modelo de apresentação da UI: agrupamento salas -> agentes -> subagentes, filtros, contadores e rótulos.
 // Funções puras (sem DOM), testadas em ui/model.test.ts.
-import type { AccountInfo, Activity, AgentInfo, AgentStatus, OfficeSnapshot, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
-import { formatElapsed, normalizeSearch } from './format';
+import type { AccountInfo, Activity, AgentInfo, AgentStatus, HermesCard, OfficeSnapshot, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
+import { formatElapsed, normalizeSearch, relativeTime } from './format';
 
 export const STATUS_LABEL: Record<AgentStatus, string> = {
   working: 'Trabalhando',
@@ -268,6 +268,31 @@ export function shellStage(ms: number): ShellStageInfo & { nextIn: number | null
 export function shellDoneKind(activity: Pick<Activity, 'tool' | 'error'> | undefined): 'ok' | 'fail' | null {
   if (activity?.tool !== 'ShellDone') return null;
   return activity.error ? 'fail' : 'ok';
+}
+
+/** O que a Atividade mostra ao tocar numa linha de cartão do Hermes. */
+export interface FeedCartao {
+  /** "board · t_123" */
+  ref: string;
+  /** Há quanto tempo foi o evento da linha. */
+  ha: string;
+  /** Título, nota e idade da nota: só se o agente ainda está nesse cartão (é o "agora"). */
+  titulo?: string;
+  nota?: string;
+  notaHa?: string;
+}
+
+export function feedCartao(activity: Pick<Activity, 'cartao' | 'at'>, hermes: HermesCard | undefined, now: number): FeedCartao | null {
+  const c = activity.cartao;
+  if (!c) return null;
+  const out: FeedCartao = { ref: `${c.board} · ${c.taskId}`, ha: relativeTime(activity.at, now) };
+  if (hermes?.board !== c.board || hermes.taskId !== c.taskId) return out;
+  out.titulo = hermes.title;
+  if (hermes.nota) {
+    out.nota = hermes.nota;
+    if (hermes.notaEm) out.notaHa = relativeTime(hermes.notaEm, now);
+  }
+  return out;
 }
 
 export interface TaskProgress {

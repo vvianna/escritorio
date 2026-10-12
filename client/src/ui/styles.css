@@ -2030,6 +2030,53 @@
   color: #ff9b8f;
 }
 
+/* Linha de cartão do Hermes aberta: board · id, título e o que o agente está fazendo agora. */
+.ui-feed__item.is-open .ui-feed__row {
+  background: var(--ui-bg-hover);
+}
+
+.ui-feed__more {
+  display: grid;
+  gap: 3px;
+  margin: 2px 8px 6px 71px;
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--ui-line-strong);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ui-feed__ref {
+  font: 11px var(--font-mono);
+  color: var(--ui-faint);
+}
+
+.ui-feed__card {
+  font-weight: 650;
+}
+
+.ui-feed__nota {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--ui-muted);
+}
+
+.ui-feed__go {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 10px;
+  margin-top: 2px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ui-text);
+}
+
+.ui-feed__go:hover {
+  background: var(--ui-bg-hover);
+}
+
 /* ------------------------------------------------------------------ gaveta de detalhes */
 
 .ui-drawer {
@@ -4200,13 +4247,22 @@
   }
 
   .ui-feed__row {
-    grid-template-columns: 20px 70px 18px minmax(0, 1fr);
+    grid-template-columns: 36px 20px 64px 18px minmax(0, 1fr);
   }
 
-  .ui-feed__time,
+  /* No celular o horário fica, só hh:mm (os segundos e a conta/sala saem para caber em 375 px). */
+  .ui-feed__sec,
   .ui-feed__row > .ui-acc-chip,
   .ui-feed__room {
     display: none;
+  }
+
+  .ui-feed__more {
+    margin-left: 12px;
+  }
+
+  .ui-feed__go {
+    min-height: 44px;
   }
 
   .ui-dialog__body {
