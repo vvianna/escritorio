@@ -4,6 +4,8 @@
 // Lê só o que o servidor já entrega: agentes com provider 'hermes' (sources/hermes.ts) e GET /api/hermes/uso
 // (sources/hermes-uso.ts). Nada de conteúdo de conversa: personas mostram só "conversando" / "à toa".
 
+import type { HermesModelo } from '../../../shared/types';
+
 /** Estado do cartão de um perfil (espelha HermesCardState de shared/types.ts, fonte `hermes`). */
 export type EstadoCartao = 'running' | 'blocked' | 'guarded' | 'delivering';
 
@@ -18,6 +20,8 @@ export interface AgentePredio {
   hermesProfile?: string;
   /** Vaga do trabalhador (um por cartão running), 1 = 1ª; ausente = personagem da função. */
   hermesSlot?: number;
+  /** Provedor/modelo ao vivo da cadeira (AgentInfo.hermesModelo). */
+  hermesModelo?: HermesModelo;
 }
 
 /** Recorte de GET /api/hermes/uso (sources/hermes-uso.ts). */
@@ -110,6 +114,8 @@ export interface Ocupante {
   detalhe?: string;
   board?: string;
   agentId?: string;
+  /** Selo de provedor/modelo da cadeira (só quem tem cartão rodando e dado da cópia do host). */
+  modelo?: HermesModelo;
 }
 
 export interface SalaVista {
@@ -184,14 +190,16 @@ export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | 
     const perfil = a.hermesProfile ?? a.name;
     if (PERSONAS.has(perfil)) continue; // persona nunca mostra cartão
     const c = a.hermes;
-    ocupantes.set(a.id, {
+    const o: Ocupante = {
       perfil,
       nome: a.name !== perfil ? a.name : apelido(perfil),
       estado: c ? c.state : 'cafe',
       detalhe: c ? (c.state === 'blocked' || c.state === 'guarded' ? c.reason || c.title : c.title) : undefined,
       board: c?.board,
       agentId: a.id,
-    });
+    };
+    if (a.hermesModelo) o.modelo = a.hermesModelo;
+    ocupantes.set(a.id, o);
   }
   const conversa = new Map((uso?.personas ?? []).map((p) => [p.perfil, p.conversando]));
   for (const perfil of PERSONAS) ocupantes.set(`persona:${perfil}`, { perfil, nome: perfil, estado: conversa.get(perfil) ? 'conversando' : 'fora' });
@@ -242,18 +250,26 @@ export function tokensCurto(n: number): string {
 /** Dados de exemplo (?mock=1): o prédio inteiro com os 4 estados, sem tocar no servidor. */
 export function exemploPredio(agora = Date.now()): { agentes: AgentePredio[]; uso: UsoHermes } {
   const card = (board: string, title: string, state: EstadoCartao, reason?: string) => ({ board, taskId: `t_${title.length}`, title, state, reason });
+  const modelo = (assinatura: HermesModelo['assinatura'], rotulo: string, model: string, nome: string, provider: string, extra: Partial<HermesModelo> = {}): HermesModelo => ({
+    assinatura,
+    rotulo,
+    model,
+    nome,
+    provider,
+    ...extra,
+  });
   const agentes: AgentePredio[] = [
-    { id: 'h:default', provider: 'hermes', name: 'default', hermes: card('default', 'Reconstruir o escritório após merge', 'running') },
+    { id: 'h:default', provider: 'hermes', name: 'default', hermes: card('default', 'Reconstruir o escritório após merge', 'running'), hermesModelo: modelo('claude', 'Claude', 'claude-opus-5-5', 'Claude Opus 5.5', 'anthropic') },
     { id: 'h:pl-opens', provider: 'hermes', name: 'pl-opens' },
-    { id: 'h:dev', provider: 'hermes', name: 'dev', hermes: card('escritorio', 'escritorio 4.4: Prédio + desfazer', 'running') },
+    { id: 'h:dev', provider: 'hermes', name: 'Santos Dumont (dev)', hermesProfile: 'dev', hermesSlot: 1, hermes: card('escritorio', 'escritorio 4.4: Prédio + desfazer', 'running'), hermesModelo: modelo('agy-gemini', 'AG Gemini', 'gemini-3.1-pro', 'Gemini 3.1 Pro', 'antigravity-agy', { reserva: true, principal: 'Claude Opus 5.5', motivo: 'limite' }) },
     { id: 'h:devcodex', provider: 'hermes', name: 'devcodex', hermes: card('openfinance', 'Extrato: filtro por período', 'delivering') },
-    { id: 'h:devgemini', provider: 'hermes', name: 'devgemini', hermes: card('openhealth', 'Importar exames em PDF', 'guarded', '3 falhas seguidas') },
+    { id: 'h:devgemini', provider: 'hermes', name: 'devgemini', hermes: card('openhealth', 'Importar exames em PDF', 'guarded', '3 falhas seguidas'), hermesModelo: modelo('agy-claude', 'AG Claude', 'claude-opus-5-5-medium', 'Claude Opus 5.5 Medium', 'antigravity-agy') },
     { id: 'h:architect', provider: 'hermes', name: 'architect', hermes: card('hermes-lab', 'Spec do painel de custos', 'blocked', 'Qual limite mensal de gasto?') },
     { id: 'h:qa', provider: 'hermes', name: 'qa' },
-    { id: 'h:reviewer', provider: 'hermes', name: 'reviewer', hermes: card('openfinance', 'Revisar PR #12', 'running') },
+    { id: 'h:reviewer', provider: 'hermes', name: 'reviewer', hermes: card('openfinance', 'Revisar PR #12', 'running'), hermesModelo: modelo('codex', 'Codex', 'gpt-5.5', 'GPT-5.5', 'openai-codex') },
     { id: 'h:judge', provider: 'hermes', name: 'judge' },
     { id: 'h:auditor', provider: 'hermes', name: 'auditor' },
-    { id: 'h:deployer', provider: 'hermes', name: 'deployer', hermes: card('openinfra', 'Deploy openinfra 1.3', 'running') },
+    { id: 'h:deployer', provider: 'hermes', name: 'deployer', hermes: card('openinfra', 'Deploy openinfra 1.3', 'running'), hermesModelo: modelo('grok', 'Grok', 'grok-4-fast-reasoning', 'Grok 4 Fast Reasoning', 'xai-oauth') },
   ];
   const p = (rotulo: string, total: number, custo = 0): UsoProvedor => ({ provedor: rotulo.toLowerCase(), rotulo, total, custoEstimadoUsd: custo });
   return {

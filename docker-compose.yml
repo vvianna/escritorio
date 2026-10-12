@@ -46,6 +46,8 @@ services:
       # (a pasta profiles/ do Hermes, com .env/auth.json, nunca entra no container).
       ESCRITORIO_USO: /cache/escritorio/uso.jsonl
       ESCRITORIO_AGY_COTA: /cache/escritorio/agy-cota.tsv
+      # Provedor/modelo ao vivo de cada cadeira + configuração dos perfis (só model/provider/fallback_providers).
+      ESCRITORIO_CADEIRAS: /cache/escritorio/cadeiras.jsonl
       ESCRITORIO_PLANTAO_DIR: /plantao/incidentes
     volumes:
       - type: bind

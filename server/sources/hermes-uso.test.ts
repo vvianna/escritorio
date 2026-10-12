@@ -248,7 +248,11 @@ describe('uso.jsonl (tools/copiar-uso.sh no host -> container)', () => {
     const fonte = readFileSync(SCRIPT, 'utf8');
     const semComentario = fonte.replace(/^\s*#.*$/gm, '');
     for (const p of PROIBIDAS) expect(semComentario, `"${p}" apareceu no script`).not.toMatch(new RegExp(`\\b${p}\\b`, 'i'));
-    expect(semComentario).not.toMatch(/\.env\b|auth\.json|config\.yaml/);
+    expect(semComentario).not.toMatch(/\.env\b|auth\.json/);
+    // config.yaml do perfil: só pelo filtro do awk das cadeiras (model/provider/fallback_providers; ver
+    // hermes-cadeira.test.ts, que confere que credenciais do arquivo não saem). Nada de cat/cp/source dele.
+    expect([...semComentario.matchAll(/config\.yaml/g)]).toHaveLength(2);
+    expect(semComentario).toMatch(/"\$AWK" -v perfil="\$p" "\$CONFIG_AWK" "\$dir\/config\.yaml"/);
     expect(semComentario).toMatch(/mode=ro/);
     expect(semComentario).not.toMatch(/SELECT\s+\*/i);
   });
@@ -276,7 +280,7 @@ describe('uso.jsonl (tools/copiar-uso.sh no host -> container)', () => {
     expect(readFileSync(join(cache, 'agy-cota.tsv'), 'utf8')).toContain('Gemini Models');
     expect(statSync(join(cache, 'uso.jsonl')).mode & 0o777).toBe(0o644);
     // sem lixo de temporário na pasta montada
-    expect(readdirSync(cache).sort()).toEqual(['agy-cota.tsv', 'uso.jsonl']);
+    expect(readdirSync(cache).sort()).toEqual(['agy-cota.tsv', 'cadeiras.jsonl', 'uso.jsonl']);
   });
 
   it.skipIf(!temSqlite3)('lerUsoJsonl dá o mesmo que ler os bancos direto', () => {

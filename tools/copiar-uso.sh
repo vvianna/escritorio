@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Copia SÓ METADADO de uso dos bancos de sessão do Hermes para ~/.cache/escritorio/uso.jsonl (roda no HOST).
+# Também grava ~/.cache/escritorio/cadeiras.jsonl (provedor/modelo ao vivo de cada cadeira; ver a seção "Cadeiras").
 #
 # Por quê: o gasto por assinatura (fase 4, item 4.3) precisa dos state.db dos perfis, mas a pasta
 # ~/.hermes/profiles/ não pode ir para o container (lá ficam .env, auth.json e config.yaml) e montar os state.db
@@ -112,4 +113,117 @@ if [ -f "$AGY" ]; then
   mv -f -- "$err" "$DEST/agy-cota.tsv"
 fi
 
-[ "${1:-}" != -v ] || echo "ok: $n banco(s) de sessão -> $DEST/uso.jsonl ($(wc -l <"$DEST/uso.jsonl") linhas)"
+# ---------------------------------------------------------------------------------------------------------------------
+# Cadeiras: provedor/modelo AO VIVO de cada trabalhador (server/sources/hermes-cadeira.ts) -> $DEST/cadeiras.jsonl.
+#   {"tipo":"meta","gerado_em":<epoch s>,"versao":1}
+#   {"tipo":"chamada","perfil":..,"sessao":..,"tarefa":"t_.."|"","model":..,"provider":..,"em":<epoch s>,"chamadas":N,
+#    "reserva_de":..,"reserva_para":..,"reserva_motivo":..,"reserva_em":..}   <- últimas 6 h do logs/agent.log do perfil
+#   {"tipo":"sessao","perfil":..,"sessao":..,"model":..,"billing_provider":..,"started_at":..}  <- sessões kanban de 24 h
+#   {"tipo":"config","perfil":..,"model":..,"provider":..,"fallback":["provedor/modelo",..]}
+#   {"tipo":"falha","perfil":..,"erro":..}
+# Do log só saem: id da sessão, o id do cartão ("work kanban task t_..": nada mais da mensagem), modelo/provedor de cada
+# chamada e a troca para a reserva com um motivo de vocabulário fixo (limite, créditos, demora, erro). Do arquivo de
+# configuração do perfil só saem model.default/model.provider e provider/model de cada fallback_providers; qualquer
+# outra chave (inclusive as de credencial) é ignorada, e valor com caractere fora de [A-Za-z0-9._:/@-] vira "".
+AWK=""
+for c in gawk awk; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" --version 2>/dev/null | head -n 1 | grep -q 'GNU Awk'; then AWK="$c"; break; fi
+done
+ctmp="$(mktemp "$DEST/.cadeiras.jsonl.XXXXXX")"
+trap 'rm -f -- "$tmp" "$err" "$ctmp"' EXIT
+printf '{"tipo":"meta","gerado_em":%s,"versao":1}\n' "$agora" >"$ctmp"
+corte_log="$(date -d "@$((agora - 6 * 3600))" '+%Y-%m-%d %H:%M:%S')"
+corte_dia=$((agora - 86400))
+
+cfalha() { # <perfil> <mensagem>
+  local msg
+  msg="$(printf '%s' "$2" | head -n 1 | tr -cd 'A-Za-z0-9 ._:()/-' | cut -c1-120)"
+  printf '{"tipo":"falha","perfil":"%s","erro":"%s"}\n' "$1" "$msg" >>"$ctmp"
+}
+
+# Últimas chamadas por sessão do agent.log (gawk: match com grupos e mktime na hora local do host, a mesma do log).
+CHAMADAS_AWK='
+function limpa(v) { return (v ~ /^[A-Za-z0-9._:\/@-]+$/) ? v : "" }
+match($0, /^([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}):([0-9]{2})[,.][0-9]+ [A-Z]+ \[([A-Za-z0-9_]+)\] (.*)$/, m) {
+  sid = m[7]; resto = m[8]; ts = m[1] "-" m[2] "-" m[3] " " m[4] ":" m[5] ":" m[6]
+  if (!(sid in visto)) ordem[++ns] = sid
+  visto[sid] = ts
+  if (!(sid in tarefa) && match(resto, /conversation turn: session=[A-Za-z0-9_]+ .*msg=.work kanban task (t_[0-9a-f]+)/, t)) tarefa[sid] = t[1]
+  if (match(resto, /API call #([0-9]+): model=([^ ]+) provider=([^ ]+)/, a)) {
+    n[sid] = a[1] + 0; modelo[sid] = limpa(a[2]); prov[sid] = limpa(a[3]); em[sid] = mktime(m[1] " " m[2] " " m[3] " " m[4] " " m[5] " " m[6])
+    next
+  }
+  # Motivo da próxima troca: só linhas do laço de chamadas (nunca saída de ferramenta), vocabulário fixo.
+  if (resto !~ /^(agent\.conversation_loop|agent\.chat_completion_helpers|run_agent|root): /) next
+  if (resto ~ /refused for billing|[Cc]redits|insufficient|payment/) erro[sid] = "créditos"
+  else if (resto ~ /(^|[^0-9])429([^0-9]|$)|[Rr]ate.?limit|usage limit|quota|[Tt]oo many requests|overloaded/) erro[sid] = "limite"
+  else if (resto ~ /TimeoutError|stale for|timed out/) erro[sid] = "demora"
+  else if (resto ~ /API call failed/ && !(sid in erro)) erro[sid] = "erro"
+  if (match(resto, /Fallback activated: ([^ ]+) → ([^ ]+) \(([^)]+)\)/, f) || match(resto, /: ([^ ]+) via [^ ]+ refused.* using fallback ([^ ]+) via ([^ .]+)/, f)) {
+    rde[sid] = limpa(f[1]); rpara[sid] = limpa(f[2]); rprov[sid] = limpa(f[3])
+    rmot[sid] = (sid in erro) ? erro[sid] : "desconhecido"
+    rem[sid] = mktime(m[1] " " m[2] " " m[3] " " m[4] " " m[5] " " m[6])
+    delete erro[sid]
+  }
+}
+END {
+  for (i = 1; i <= ns; i++) {
+    sid = ordem[i]
+    if (visto[sid] < corte || modelo[sid] == "") continue
+    printf "{\"tipo\":\"chamada\",\"perfil\":\"%s\",\"sessao\":\"%s\",\"tarefa\":\"%s\",\"model\":\"%s\",\"provider\":\"%s\",\"em\":%d,\"chamadas\":%d", perfil, sid, tarefa[sid], modelo[sid], prov[sid], em[sid], n[sid]
+    if (sid in rem) printf ",\"reserva_de\":\"%s\",\"reserva_para\":\"%s\",\"reserva_provider\":\"%s\",\"reserva_motivo\":\"%s\",\"reserva_em\":%d", rde[sid], rpara[sid], rprov[sid], rmot[sid], rem[sid]
+    printf "}\n"
+  }
+}'
+
+# Só model.default/model.provider e provider/model de cada item de fallback_providers (YAML simples do Hermes).
+CONFIG_AWK='
+function limpa(v) { sub(/[ \t]+#.*$/, "", v); gsub(/^[ \t\"\x27]+|[ \t\"\x27]+$/, "", v); return (v ~ /^[A-Za-z0-9._:\/@-]+$/) ? v : "" }
+function fecha() { if (fp != "" || fm != "") { lista = lista (lista == "" ? "" : ",") "\"" fp "/" fm "\"" }; fp = ""; fm = "" }
+/^[^ \t#-]/ { if (sec == "fb") fecha(); sec = "" }
+/^model:[ \t]*(#.*)?$/ { sec = "model"; next }
+/^model:/ { v = $0; sub(/^model:/, "", v); modelo = limpa(v); next }
+/^fallback_providers:[ \t]*(#.*)?$/ { sec = "fb"; next }
+sec == "model" && match($0, /^  ([a-z_]+):(.*)$/, k) {
+  if (k[1] == "default" || (k[1] == "model" && modelo == "")) modelo = limpa(k[2])
+  else if (k[1] == "provider") prov = limpa(k[2])
+  next
+}
+sec == "fb" && /^[ \t]*-/ { fecha(); sub(/-/, " ") }
+sec == "fb" && match($0, /^[ \t]+(provider|model):(.*)$/, k) { if (k[1] == "provider") fp = limpa(k[2]); else fm = limpa(k[2]) }
+END {
+  if (sec == "fb") fecha()
+  printf "{\"tipo\":\"config\",\"perfil\":\"%s\",\"model\":\"%s\",\"provider\":\"%s\",\"fallback\":[%s]}\n", perfil, modelo, prov, lista
+}'
+
+cadeira() { # <perfil> <pasta do perfil> <state.db>
+  local p="$1" dir="$2" db="$3" saida
+  if [ -z "$AWK" ]; then cfalha "$p" "gawk nao encontrado"; return; fi
+  if [ -f "$dir/logs/agent.log" ]; then
+    if ! "$AWK" -v perfil="$p" -v corte="$corte_log" "$CHAMADAS_AWK" "$dir/logs/agent.log" >>"$ctmp" 2>"$err"; then cfalha "$p" "log: $(cat "$err")"; fi
+  fi
+  if [ -f "$db" ]; then
+    if saida="$("$SQL3" -readonly -batch -noheader -list "file:$db?mode=ro" "SELECT json_object('tipo','sessao','perfil','$p','sessao',id,'model',COALESCE(model,''),'billing_provider',COALESCE(billing_provider,''),'started_at',started_at) FROM sessions WHERE source = 'kanban' AND started_at >= $corte_dia ORDER BY started_at;" 2>"$err")"; then
+      [ -z "$saida" ] || printf '%s\n' "$saida" >>"$ctmp"
+    else
+      cfalha "$p" "$(cat "$err")"
+    fi
+  fi
+  if [ -f "$dir/config.yaml" ]; then
+    "$AWK" -v perfil="$p" "$CONFIG_AWK" "$dir/config.yaml" >>"$ctmp" 2>"$err" || cfalha "$p" "config: $(cat "$err")"
+  fi
+}
+
+cadeira default "$H" "$H/state.db"
+for dir in "$H"/profiles/*/; do
+  dir="${dir%/}"
+  p="$(basename "$dir")"
+  nome_ok "$p" || continue
+  [ "$p" != default ] || continue
+  [ -f "$dir/state.db" ] || [ -f "$dir/logs/agent.log" ] || continue
+  cadeira "$p" "$dir" "$dir/state.db"
+done
+chmod 644 "$ctmp"
+mv -f -- "$ctmp" "$DEST/cadeiras.jsonl"
+
+[ "${1:-}" != -v ] || echo "ok: $n banco(s) de sessão -> $DEST/uso.jsonl ($(wc -l <"$DEST/uso.jsonl") linhas), cadeiras.jsonl ($(wc -l <"$DEST/cadeiras.jsonl") linhas)"

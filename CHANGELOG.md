@@ -12,6 +12,15 @@ do meio (0.**3**.0).
 
 ### Novo
 
+- Hermes: provedor/modelo AO VIVO de cada cadeira. Cada trabalhador com cartão rodando ganha um selo com a cor da
+  assinatura que paga a chamada (Claude, Codex, AG Gemini, AG Claude, Grok) e o nome do modelo no hover, na lista e no
+  Prédio. O dado é o da última chamada da sessão do worker (não o configurado): `tools/copiar-uso.sh` lê no host o
+  `logs/agent.log` e o `state.db` de cada perfil e grava só metadado em `~/.cache/escritorio/cadeiras.jsonl`
+  (`ESCRITORIO_CADEIRAS`). Se o worker cair para a reserva no meio do cartão, o selo fica laranja "↪ reserva" e a
+  Atividade ganha "passou de Claude Opus 5.5 para Gemini 3.1 Pro (reserva) — motivo: limite" (nome do trabalhador no
+  hover). Mudou a configuração de um perfil (`model`/`fallback_providers`)? A Atividade mostra "⚙️ judge: modelo
+  principal agora é X" (do `config.yaml` só saem essas chaves).
+
 - Hermes: um personagem por trabalhador. Cada cartão rodando de uma função (dev, reviewer, judge…) vira um
   personagem próprio, com o nome da vaga que ocupa: "Oswaldo Cruz (dev)" + o título do cartão. Os nomes vêm de
   `~/.hermes/time/nomes.json` (no Docker, `/hermes/time/nomes.json`, read-only); sem nome para a vaga, "dev #1",

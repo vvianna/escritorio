@@ -28,12 +28,15 @@
 // trabalhadores rodando. Personas e o Manager seguem com um personagem só.
 // Cartão destravado (saiu de blocked/internal ou foi reatribuído): a mão do perfil anterior abaixa e o "✋ Precisa de
 // você" fica na Atividade marcado como "✅ Resolvido pelo Manager".
+// Selo de provedor/modelo ao vivo de cada cadeira com cartão running e as linhas "passou para a reserva" / "⚙️ config
+// mudou" na Atividade: vêm da cópia só-metadado cadeiras.jsonl (tools/copiar-uso.sh, ver sources/hermes-cadeira.ts).
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { AgentStatus, HermesCard, HermesCardState, SourceInfo } from '../../shared/types';
+import type { AgentStatus, HermesCard, HermesCardState, HermesModelo, SourceInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
+import { CADEIRA_VELHA_MS, criarLeitorCadeiras, modeloDaCadeira, nomeModelo, type ConfigPerfil, type DadosCadeiras } from './hermes-cadeira';
 import { HermesSlots, loadNomes, nomesPath, SINGLE_PROFILES, singleName, workerName } from './hermes-vagas';
 import type { AgentSource } from './source';
 
@@ -62,6 +65,8 @@ export interface ProfileCard extends HermesCard {
   at: number;
   /** Cartão com status running no kanban (tem um trabalhador rodando): epoch s de quando começou. */
   liveSince?: number;
+  /** Início (epoch s) do run atual (task_runs.started_at de current_run_id): casa o cartão com a sessão do worker. */
+  runStartedAt?: number;
 }
 
 export interface BoardRead {
@@ -191,11 +196,24 @@ interface TaskRow {
 export function readBoard(db: DatabaseSync, board: string, now: number): BoardRead {
   const t0 = Math.floor(now / 1000);
   const cards: ProfileCard[] = [];
+  const runBeat = db.prepare('SELECT COALESCE(last_heartbeat_at, started_at) AS at FROM task_runs WHERE id=?');
+  const runStart = db.prepare('SELECT started_at FROM task_runs WHERE id=?');
   const add = (profile: string | null | undefined, task: TaskRow, state: HermesCardState, at: number, reason?: string) => {
     if (!profile) return;
     const card: ProfileCard = { profile, board, taskId: task.id, title: task.title, state, at };
     if (reason) card.reason = reason;
-    if (task.status === 'running' && (state === 'running' || state === 'guarded')) card.liveSince = task.started_at ?? task.created_at;
+    if (task.status === 'running' && (state === 'running' || state === 'guarded')) {
+      card.liveSince = task.started_at ?? task.created_at;
+      let run: number | null | undefined;
+      if (task.current_run_id != null) {
+        try {
+          run = (runStart.get(task.current_run_id) as { started_at: number | null } | undefined)?.started_at;
+        } catch {
+          run = undefined;
+        }
+      }
+      card.runStartedAt = run ?? card.liveSince;
+    }
     cards.push(card);
   };
 
@@ -226,7 +244,6 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
   const lastBlock = db.prepare(
     `SELECT kind, payload, created_at FROM task_events WHERE task_id=? AND kind IN (${BLOCK_EVENTS.map(() => '?').join(',')}) ORDER BY id DESC LIMIT 1`,
   );
-  const runBeat = db.prepare('SELECT COALESCE(last_heartbeat_at, started_at) AS at FROM task_runs WHERE id=?');
 
   for (const t of tasks) {
     const fails = t.consecutive_failures ?? 0;
@@ -342,6 +359,11 @@ export interface HermesSourceOptions {
   nomesFile?: string;
   /** Onde guardar o mapa cartão → vaga (no Docker, /data/hermes-vagas.json); null/ausente = só em memória. */
   slotsFile?: string | null;
+  /**
+   * cadeiras.jsonl de tools/copiar-uso.sh (provedor/modelo ao vivo de cada cadeira e configuração dos perfis; no
+   * Docker, /cache/escritorio/cadeiras.jsonl). null/ausente = sem selo de modelo.
+   */
+  cadeirasFile?: string | null;
 }
 
 interface BoardState extends HermesBoard {
@@ -371,10 +393,16 @@ export class HermesSource implements AgentSource {
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly now: () => number;
   private readonly slots: HermesSlots;
+  private readonly lerCadeiras: () => DadosCadeiras;
+  /** Último selo de cada personagem (por cartão): detecta a troca para a reserva. */
+  private modelos = new Map<string, { taskId: string; modelo: HermesModelo }>();
+  /** Última configuração vista de cada perfil (hash de model/provider/fallback_providers). */
+  private configs = new Map<string, ConfigPerfil>();
 
   constructor(private readonly opts: HermesSourceOptions) {
     this.now = opts.now ?? Date.now;
     this.slots = new HermesSlots(opts.slotsFile ?? null);
+    this.lerCadeiras = criarLeitorCadeiras(opts.cadeirasFile ?? null);
   }
 
   start(): void {
@@ -482,11 +510,92 @@ export class HermesSource implements AgentSource {
       this.upsert(ch, cards, now);
       seen.add(ch.id);
     }
+    this.cadeiras(chars, now);
     for (const [id, board] of [...this.present]) {
       if (seen.has(id) || failed.has(board)) continue;
       this.resolveHand(id, cards, true);
       this.opts.office.closeMain(id);
       this.present.delete(id);
+      this.modelos.delete(id);
+    }
+  }
+
+  /**
+   * Selo de provedor/modelo de cada cadeira com cartão running (ver sources/hermes-cadeira.ts) e as linhas da Atividade
+   * quando a cadeira troca de modelo no meio do cartão (reserva) ou quando a configuração de um perfil muda.
+   */
+  private cadeiras(chars: readonly Character[], now: number): void {
+    const office = this.opts.office;
+    const dados = this.lerCadeiras();
+    const velha = !dados.copiadoEm || now - dados.copiadoEm > CADEIRA_VELHA_MS;
+    for (const ch of chars) {
+      const card = ch.card;
+      if (!card || card.liveSince === undefined) {
+        office.setHermesModelo(ch.id, undefined);
+        this.modelos.delete(ch.id);
+        continue;
+      }
+      const prev = this.modelos.get(ch.id);
+      const cur = modeloDaCadeira(dados, ch.profile, card.taskId, card.runStartedAt);
+      // Cópia velha (cron parado) ou sem dado: fica o último selo deste cartão.
+      if (!cur || (velha && prev?.taskId === card.taskId)) {
+        if (prev?.taskId !== card.taskId) office.setHermesModelo(ch.id, cur);
+        continue;
+      }
+      office.setHermesModelo(ch.id, cur);
+      this.modelos.set(ch.id, { taskId: card.taskId, modelo: cur });
+      const antes = prev?.taskId === card.taskId ? prev.modelo : undefined;
+      let de: string | undefined;
+      if (antes && (antes.provider !== cur.provider || antes.model !== cur.model)) de = antes.nome;
+      // Já chegou na reserva (a troca foi entre duas cópias): a linha sai uma vez, com o principal.
+      else if (!antes && cur.reserva && cur.motivo && cur.principal) de = cur.principal;
+      if (!de) continue;
+      const volta = !cur.reserva;
+      // A linha do feed já mostra o personagem: o texto começa pela troca (o que importa cabe antes das reticências);
+      // a frase inteira, com o nome, fica no detalhe (hover).
+      const troca = volta ? `voltou de ${de} para ${cur.nome}` : `passou de ${de} para ${cur.nome} (reserva) — motivo: ${cur.motivo ?? 'desconhecido'}`;
+      office.addActivity(
+        ch.id,
+        {
+          id: `${ch.id}#modelo:${card.taskId}:${cur.provider}/${cur.model}:${cur.em ?? now}`,
+          kind: 'other',
+          icon: volta ? '↩' : '↪',
+          text: troca,
+          detail: `${ch.name} ${troca} · ${card.board} · ${card.taskId} · ${cur.provider}/${cur.model}`,
+          tool: 'Hermes',
+          at: cur.em ?? now,
+        },
+        false,
+      );
+    }
+
+    // Configuração do perfil (model/provider/fallback_providers): compara o hash a cada ciclo.
+    if (velha) return;
+    for (const [perfil, cfg] of dados.configs) {
+      const antes = this.configs.get(perfil);
+      this.configs.set(perfil, cfg);
+      if (!antes || antes.hash === cfg.hash) continue;
+      const alvo = this.opts.office.has(`hermes:${perfil}`) ? `hermes:${perfil}` : chars.find((c) => c.profile === perfil)?.id;
+      if (!alvo) continue;
+      const principal = antes.model !== cfg.model || antes.provider !== cfg.provider;
+      const texto = principal
+        ? `${perfil}: modelo principal agora é ${nomeModelo(cfg.model)}`
+        : `${perfil}: reserva agora é ${cfg.fallback.map((f) => nomeModelo(f)).join(', ') || 'nenhuma'}`;
+      office.addActivity(
+        alvo,
+        {
+          id: `${alvo}#config:${cfg.hash}:${now}`,
+          kind: 'other',
+          icon: '⚙️',
+          text: texto,
+          detail: principal
+            ? `${perfil}: de ${nomeModelo(antes.model)} (${antes.provider || '?'}) para ${nomeModelo(cfg.model)} (${cfg.provider || '?'})`
+            : `${perfil}: reserva era ${antes.fallback.join(', ') || 'nenhuma'}; agora ${cfg.fallback.join(', ') || 'nenhuma'}`,
+          tool: 'Hermes',
+          at: now,
+        },
+        false,
+      );
     }
   }
 

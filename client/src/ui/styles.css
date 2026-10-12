@@ -392,6 +392,52 @@
   font-size: 8.5px;
 }
 
+/* Selo de provedor/modelo da cadeira de um trabalhador do Hermes (ui/hermes-selo.ts): cor por assinatura; laranja
+   com "↪ reserva" quando caiu para a reserva no meio do cartão. O nome do modelo fica no hover. */
+.ui-hsel {
+  --hsel: #8b98b3;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--hsel) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--hsel);
+  color: #eef1fa;
+  font: 700 9.5px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: help;
+}
+.ui-hsel[hidden] {
+  display: none;
+}
+.ui-hsel--claude {
+  --hsel: #d97757;
+}
+.ui-hsel--codex {
+  --hsel: #10a37f;
+}
+.ui-hsel--agy-gemini {
+  --hsel: #4c8df6;
+}
+.ui-hsel--agy-claude {
+  --hsel: #a07bd8;
+}
+.ui-hsel--grok {
+  --hsel: #c9ced8;
+}
+.ui-hsel--reserva {
+  --hsel: #ff9f1c;
+  background: #ff9f1c;
+  color: #1b1405;
+}
+.predio__nome .ui-hsel {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
 .ui-status-dot {
   --st: var(--st-idle);
   display: inline-block;
