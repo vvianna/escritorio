@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mock esquemático: coluna do elevador (375 px) — spec predio-vertical</title>
+<style>
+  /* MOCK ESQUEMÁTICO, não é a arte. A arte é a do client/src/world (ver prints do protótipo).
+     Mostra só ONDE ficam o alternador, a coluna hall | poço | escada, a cabine, a fila e os crachás. */
+  body { margin: 0; background: #1b1f2a; font: 13px/1.3 system-ui, sans-serif; color: #e8ecf5; }
+  .quadro { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px; }
+  .tel { width: 375px; height: 700px; position: relative; overflow: hidden; background: #76a35c; border: 1px solid #48526b; }
+  .barra { height: 52px; background: #12151d; border-bottom: 1px solid #48526b; display: flex; align-items: center; padding: 0 10px; color: #8b98b3; }
+  .alterna { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; padding: 3px; background: #12151d; border: 1px solid #48526b; border-radius: 10px; z-index: 5; }
+  .alterna b { min-width: 88px; min-height: 44px; display: grid; place-items: center; border-radius: 8px; font-weight: 600; }
+  .alterna b.on { background: #7cc8ff; color: #0b1320; }
+  .cena { position: absolute; top: 52px; left: 0; right: 0; bottom: 0; }
+  .laje { position: absolute; left: 0; right: 0; height: 40px; background: repeating-linear-gradient(90deg,#9a5a48 0 14px,#8a4e3e 14px 16px); }
+  .placa { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); min-height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #ffb547; border-radius: 8px; background: #1b1405; color: #ffe2a8; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+  .sala { position: absolute; background: #c9b9e8; border: 2px solid #5a4f73; }
+  .sala .nome { position: absolute; left: 6px; bottom: 4px; background: rgba(15,18,27,.78); padding: 0 4px; border-radius: 3px; font: 700 11px/15px system-ui; text-transform: uppercase; }
+  .mesa { position: absolute; width: 44px; height: 22px; background: #8a6a4a; border: 1px solid #4a3a2a; }
+  .boneco { position: absolute; width: 12px; height: 18px; background: #f2c7a5; border-radius: 6px 6px 2px 2px; }
+  .rot { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .rot span { background: rgba(15,18,27,.86); padding: 1px 5px; border-radius: 4px; font: 700 12px/16px system-ui; white-space: nowrap; }
+  .rot i { font-style: normal; font: 700 11px/15px system-ui; padding: 0 4px; border-radius: 3px; box-shadow: inset 0 0 0 1px #d97757; text-transform: uppercase; }
+  .corr { position: absolute; background: #b9bcc4; }
+  .hall { position: absolute; background: #a9adb6; outline: 1px dashed #5d6680; }
+  .poco { position: absolute; background: #2b3245; background-image: linear-gradient(90deg,transparent 6px,#5d6680 6px 8px,transparent 8px calc(100% - 8px),#5d6680 calc(100% - 8px) calc(100% - 6px),transparent calc(100% - 6px)); }
+  .cab { position: absolute; background: #c9ced8; border: 2px solid #6b7385; }
+  .cab::before { content: ""; position: absolute; left: -2px; top: 4px; bottom: 4px; width: 3px; background: #ffb547; }
+  .escada { position: absolute; background: repeating-linear-gradient(0deg,#8b93a5 0 6px,#6b7385 6px 8px); }
+  .fila { position: absolute; width: 10px; height: 14px; border-radius: 5px 5px 2px 2px; background: #f2c7a5; outline: 1px solid #1b1f2a; }
+  .tag { position: absolute; font: 600 11px/1.2 system-ui; color: #0b1320; background: #ffe2a8; padding: 1px 4px; border-radius: 3px; }
+  .zoom { position: absolute; right: 12px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .zoom b { width: 44px; height: 44px; display: grid; place-items: center; background: #1d2333; border: 1px solid #5d6680; border-radius: 8px; font-size: 18px; }
+  .lado { max-width: 360px; }
+  .lado li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="quadro">
+
+  <!-- 1. Visão geral (375): o prédio inteiro + a coluna à direita -->
+  <div class="tel" aria-label="Visão geral 375">
+    <div class="barra">barra de cima (como hoje)</div>
+    <div class="alterna"><b>Salas</b><b class="on">Prédio</b></div>
+    <div class="cena">
+      <div class="laje" style="top:62px;left:8px;right:8px"><span class="placa">Cobertura · Negócio <small>✋ 1 portão</small></span></div>
+      <div class="sala" style="top:102px;left:8px;width:150px;height:110px"><span class="nome">Mesa do Victor</span></div>
+      <div class="sala" style="top:102px;left:160px;width:150px;height:110px;background:#7fb069"><span class="nome">Terraço</span></div>
+      <div class="corr" style="top:212px;left:8px;width:302px;height:46px"></div>
+      <div class="laje" style="top:258px;left:8px;right:8px"><span class="placa">3º · Produto <small>1 trabalhando</small></span></div>
+      <div class="sala" style="top:298px;left:8px;width:150px;height:110px"><span class="nome">Produto</span></div>
+      <div class="sala" style="top:298px;left:160px;width:150px;height:110px;background:#e8e2c9"><span class="nome">Copa</span></div>
+      <div class="corr" style="top:408px;left:8px;width:302px;height:46px"></div>
+      <div class="laje" style="top:454px;left:8px;right:8px"><span class="placa">2º · TI <small>7 trabalhando · ✋ 1</small></span></div>
+      <div class="sala" style="top:494px;left:8px;width:150px;height:110px"><span class="nome">Manager</span></div>
+      <div class="sala" style="top:494px;left:160px;width:150px;height:110px"><span class="nome">PL Opens</span></div>
+      <!-- coluna: hall | poço | escada -->
+      <div class="hall" style="top:102px;left:310px;width:18px;height:600px"></div>
+      <div class="poco" style="top:62px;left:328px;width:27px;height:640px"></div>
+      <div class="escada" style="top:62px;left:355px;width:18px;height:640px"></div>
+      <div class="cab" style="top:330px;left:328px;width:27px;height:18px"></div>
+      <span class="tag" style="top:352px;left:262px">cabine subindo</span>
+    </div>
+    <div class="zoom"><b>+</b><b>−</b></div>
+  </div>
+
+  <!-- 2. Zoom no 2º TI, sala da direita tocada: sala inteira (8..367 px), coluna alcançável arrastando -->
+  <div class="tel" aria-label="Zoom 375 na parada do TI">
+    <div class="barra">barra de cima (como hoje)</div>
+    <div class="alterna"><b>Salas</b><b class="on">Prédio</b></div>
+    <div class="cena">
+      <div class="laje" style="top:62px;left:-40px;right:-40px"><span class="placa" style="left:48px">2º · TI <small>7 trabalhando · ✋ 1</small></span></div>
+      <div class="sala" style="top:102px;left:8px;width:355px;height:250px">
+        <span class="nome">PL Opens</span>
+      </div>
+      <div class="mesa" style="top:150px;left:60px"></div><div class="boneco" style="top:174px;left:76px"></div>
+      <div class="rot" style="top:198px;left:48px"><span>pl-opens</span><i>ChatGPT</i></div>
+      <div class="mesa" style="top:150px;left:230px"></div><div class="boneco" style="top:174px;left:246px"></div>
+      <div class="rot" style="top:198px;left:222px"><span>Nise</span><i>Claude</i></div>
+      <span class="tag" style="top:250px;left:40px">crachá embaixo dos pés: acima dele há mesa/monitor</span>
+      <div class="corr" style="top:352px;left:8px;width:355px;height:80px"></div>
+      <span class="tag" style="top:440px;left:12px">→ arrastar para a esquerda mostra hall, fila e cabine (tela 3)</span>
+    </div>
+    <div class="zoom"><b>+</b><b>−</b></div>
+  </div>
+
+  <!-- 3. Mesmo zoom arrastado para a direita: a parada do TI com fila na porta -->
+  <div class="tel" aria-label="Parada do TI com fila">
+    <div class="barra">barra de cima (como hoje)</div>
+    <div class="alterna"><b>Salas</b><b class="on">Prédio</b></div>
+    <div class="cena">
+      <div class="sala" style="top:20px;left:-120px;width:300px;height:230px"><span class="nome" style="left:130px">PL Opens</span></div>
+      <div class="corr" style="top:250px;left:-120px;width:300px;height:110px"></div>
+      <div class="hall" style="top:0;left:180px;width:56px;height:700px"></div>
+      <div class="poco" style="top:0;left:236px;width:84px;height:700px"></div>
+      <div class="escada" style="top:0;left:320px;width:55px;height:700px"></div>
+      <div class="cab" style="top:272px;left:236px;width:84px;height:56px"></div>
+      <span class="tag" style="top:240px;left:250px">porta aberta</span>
+      <!-- fila: P, F1, F2 -->
+      <div class="fila" style="top:300px;left:214px"></div>
+      <div class="fila" style="top:300px;left:188px"></div>
+      <div class="fila" style="top:328px;left:214px"></div>
+      <div class="rot" style="top:356px;left:176px"><span>Santos 📦</span></div>
+      <span class="tag" style="top:400px;left:150px">fila: P, F1, F2… (máx. 3 na cabine)</span>
+      <span class="tag" style="top:430px;left:150px">dentro da cabine: sem crachá, só 📦</span>
+    </div>
+    <div class="zoom"><b>+</b><b>−</b></div>
+  </div>
+
+  <div class="lado">
+    <h3>O que este mock fixa (o resto é a arte do protótipo)</h3>
+    <ol>
+      <li>"Salas | Prédio" logo abaixo da barra; 1ª vez abre em Salas.</li>
+      <li>Coluna à direita do prédio, de cima a baixo: hall (2 tiles), poço com a cabine (3), escada (2).</li>
+      <li>Zoom no celular: a sala tocada inteira entre 8 e 367 px; a coluna fica a um arrasto.</li>
+      <li>Crachá vai para baixo dos pés quando em cima há móvel; nunca cortado na borda.</li>
+      <li>Fila na porta (P, F1, F2…), no máximo 3 na cabine; dentro da cabine, só o 📦 aparece.</li>
+      <li>+ e − no canto de baixo à direita, 44 px.</li>
+    </ol>
+    <p>Coordenadas exatas: <code>planta.md</code>. Sequências: <code>fluxos.md</code>.</p>
+  </div>
+</div>
+</body>
+</html>
