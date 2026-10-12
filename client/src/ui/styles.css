@@ -8078,7 +8078,9 @@ html.is-replay #world {
   right: 0;
   bottom: 0;
   top: var(--top-h);
-  z-index: 40;
+  /* D1: cobre o mundo (e o .ui-empty, z10), mas lista lateral (20), feed (15), gaveta (20/25), terminal, avisos,
+     configurações e a janela de prédio continuam por cima. */
+  z-index: 13;
   overflow: auto;
   background: #76a35c;
   -webkit-overflow-scrolling: touch;
@@ -8273,11 +8275,11 @@ html.is-replay #world {
   color: #0b1320;
 }
 
-/* + e − no canto de baixo à direita. */
+/* + e − no canto de baixo à direita da área livre (não cobre gaveta nem feed, como os avisos). */
 .pred-zoom {
   position: fixed;
-  right: 12px;
-  bottom: 16px;
+  right: max(12px, var(--free-right));
+  bottom: max(16px, var(--free-bottom));
   z-index: 45;
   display: flex;
   flex-direction: column;

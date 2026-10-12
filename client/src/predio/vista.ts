@@ -97,6 +97,7 @@ export class VistaPredio implements UiComponent {
   private raf = 0;
   private ultimo = 0;
   private ultDesenho = 0;
+  private ultExpirar = 0;
   private semente = 12345;
   private readonly rnd = () => (this.semente = (this.semente * 1103515245 + 12345) >>> 0) / 0xffffffff;
 
@@ -372,6 +373,13 @@ export class VistaPredio implements UiComponent {
     const dt = Math.min(0.1, (agora - this.ultimo) / 1000);
     this.ultimo = agora;
     m.bonecos.passo(dt, agora, m.pf, this.rnd);
+    // Quem sumiu há > 3 s sai mesmo se o servidor parar de mandar snapshot.
+    if (agora - this.ultExpirar >= 1000) {
+      this.ultExpirar = agora;
+      const n = m.bonecos.lista.length;
+      m.bonecos.expirar(agora);
+      if (m.bonecos.lista.length !== n) this.reconciliarCrachas();
+    }
     if (agora - this.ultDesenho < FPS_MS) return;
     this.desenharAgora(agora);
   };
