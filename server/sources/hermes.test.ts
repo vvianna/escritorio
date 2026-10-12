@@ -68,7 +68,7 @@ function fixtureRoot(root: string): void {
     ],
     [['t_blk', 'blocked', { reason: 'O que travou: falta escolher a porta.\nVocê faz: responda "4317".', kind: 'needs_input' }, S - 300]],
   );
-  const guard = Array.from({ length: 6 }, (_, i) => ['t_grd', 'respawn_guarded', { reason: 'active_pr' }, S - 60 * (i + 1)] as [string, string, unknown, number]);
+  const guard = Array.from({ length: 6 }, (_, i) => ['t_grd', 'respawn_guarded', { reason: 'blocker_auth' }, S - 60 * (i + 1)] as [string, string, unknown, number]);
   makeDb(
     join(root, 'kanban', 'boards', 'openhealth', 'kanban.db'),
     [
@@ -110,7 +110,7 @@ describe('readBoard', () => {
     expect(by.get('dev')).toMatchObject({ state: 'running', board: 'default', taskId: 't_run' });
     expect(by.get('architect')).toMatchObject({ state: 'blocked', reason: 'falta escolher a porta.' });
     expect(by.get('reviewer')).toMatchObject({ state: 'guarded', board: 'openhealth', taskId: 't_grd' });
-    expect(by.get('reviewer')!.reason).toContain('active_pr');
+    expect(by.get('reviewer')!.reason).toContain('blocker_auth');
     expect(by.get('devgemini')).toMatchObject({ state: 'delivering', taskId: 't_dlv', reason: 'entregou para judge' });
     expect(by.has('qa')).toBe(false);
   });
@@ -139,6 +139,42 @@ describe('readBoard', () => {
     expect(by.get('p2')).toMatchObject({ state: 'guarded', reason: '3 falhas seguidas' });
     expect(by.get('p3')).toMatchObject({ state: 'guarded', reason: 'erro do sistema (gave_up)' });
     expect(by.has('p4')).toBe(false); // 4 guardas em 10 min não bastam
+  });
+
+  it('12/10: guarda de PR repetida (active_pr) é "Manager resolvendo" (sem mão) e some quando a guarda é solta', () => {
+    const path = join(tmp.dir, 'kanban.db');
+    const g = (tid: string, reason = 'active_pr') =>
+      Array.from({ length: 6 }, (_, i) => [tid, 'respawn_guarded', { reason }, S - 60 * (i + 2)] as [string, string, unknown, number]);
+    makeDb(
+      path,
+      [
+        { id: 'pr', title: 'preso no PR', status: 'ready', assignee: 'p1' },
+        { id: 'sol', title: 'solto por reatribuição', status: 'ready', assignee: 'p2' },
+        { id: 'spw', title: 'solto: worker nasceu', status: 'ready', assignee: 'p3' },
+        { id: 'velho', title: 'reatribuído antes da última guarda', status: 'ready', assignee: 'p4' },
+        { id: 'aut', title: 'outro motivo', status: 'ready', assignee: 'p5' },
+      ],
+      [
+        ...g('pr'),
+        ...g('sol'),
+        ['sol', 'assigned', { assignee: 'p2', from: null }, S - 60],
+        ...g('spw'),
+        ['spw', 'spawned', { pid: 1 }, S - 30],
+        ['velho', 'assigned', { assignee: 'p4', from: 'dev' }, S - 600],
+        ...g('velho'),
+        ...g('aut', 'blocker_auth'),
+      ],
+    );
+    const db = openReadOnly(path);
+    const by = pickCards(readBoard(db, 'default', NOW).cards);
+    db.close();
+    expect(by.get('p1')).toMatchObject({ state: 'internal', taskId: 'pr' });
+    expect(by.get('p1')!.reason).toContain('active_pr');
+    expect(by.has('p2')).toBe(false);
+    expect(by.has('p3')).toBe(false);
+    expect(by.get('p4')).toMatchObject({ state: 'internal', taskId: 'velho' });
+    expect(by.get('p5')).toMatchObject({ state: 'guarded' });
+    expect(by.get('p5')!.reason).toContain('blocker_auth');
   });
 
   it('entrega antiga (> 3 min) não conta; reatribuição para o revisor conta para quem entregou', () => {

@@ -10,12 +10,14 @@
 //
 // Estado de cada cartão aberto (prioridade quando um perfil tem vários: guarded > blocked > internal > delivering >
 // running):
-// - guarded (placa vermelha), mesmas regras do pl-opens-coleta.py: >=5 respawn_guarded do mesmo motivo em 10 min,
-//   consecutive_failures >= 3, running sem heartbeat há mais de 60 min, ou blocked cujo último evento de bloqueio é
-//   erro do sistema (gave_up, spawn_failed, crashed, timed_out — mesma regra do kanban-nanny);
+// - guarded (placa vermelha), mesmas regras do pl-opens-coleta.py: >=5 respawn_guarded do mesmo motivo em 10 min
+//   (menos active_pr, ver internal), consecutive_failures >= 3, running sem heartbeat há mais de 60 min, ou blocked
+//   cujo último evento de bloqueio é erro do sistema (gave_up, spawn_failed, crashed, timed_out — regra do nanny);
 // - blocked: blocked esperando humano (levanta a mão; balão = 1ª linha do motivo, sem o "O que travou:");
 // - internal (placa amarela "Manager resolvendo", sem mão): blocked de roteamento interno que o kanban-nanny resolve
-//   sozinho (ver internalBlock: mesma regra do kanban-nanny.py);
+//   sozinho (ver internalBlock: mesma regra do kanban-nanny.py), e (12/10) guarda de PR repetida (active_pr), que o
+//   pl-opens-maos solta sozinho. Guarda repetida de qualquer motivo some assim que há `assigned` ou `spawned` depois
+//   da última guarda (a guarda foi solta), sem esperar a janela de 10 min;
 // - delivering: review_requested há menos de DELIVER_MS (vale para o `implementer` do evento) ou reatribuição para
 //   reviewer/judge/qa/auditor (vale para o `from`);
 // - running: status running do assignee.
@@ -227,18 +229,28 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
 
   // respawn_guarded repetido (janela de 10 min, por cartão e motivo)
   const guards = new Map<string, number>();
+  const lastGuard = new Map<string, number>();
   for (const r of db
-    .prepare("SELECT task_id, payload FROM task_events WHERE kind='respawn_guarded' AND created_at > ? AND created_at <= ?")
-    .all(t0 - GUARD_WINDOW_S, t0) as Array<{ task_id: string; payload: string | null }>) {
+    .prepare("SELECT task_id, payload, created_at FROM task_events WHERE kind='respawn_guarded' AND created_at > ? AND created_at <= ?")
+    .all(t0 - GUARD_WINDOW_S, t0) as Array<{ task_id: string; payload: string | null; created_at: number }>) {
     if (!open.has(r.task_id)) continue;
     const key = `${r.task_id}\u0000${str(payloadOf(r.payload).reason) ?? '?'}`;
     guards.set(key, (guards.get(key) ?? 0) + 1);
+    lastGuard.set(r.task_id, Math.max(lastGuard.get(r.task_id) ?? 0, r.created_at));
   }
+  // 12/10: a guarda já foi solta (reatribuição ou worker iniciado depois da última guarda) → o alerta some na hora,
+  // sem esperar a janela de 10 min esvaziar.
+  const movedAfter = db.prepare("SELECT 1 FROM task_events WHERE task_id=? AND kind IN ('assigned','spawned') AND created_at >= ? LIMIT 1");
   const guardedBy = new Map<string, string>();
+  const guardInternalBy = new Map<string, string>();
   for (const [key, n] of guards) {
     if (n < GUARD_MIN) continue;
     const [tid, why] = key.split('\u0000');
-    guardedBy.set(tid, `guarda repetida (${why}) ${GUARD_MIN}+ em 10 min`);
+    if (movedAfter.get(tid, lastGuard.get(tid) ?? t0)) continue;
+    // 12/10 (Victor): a guarda de PR (active_pr) é trabalho do Manager (pl-opens-maos solta sozinho), não do Victor:
+    // placa amarela "Manager resolvendo", sem mão. Os outros motivos seguem placa vermelha.
+    if (why === 'active_pr') guardInternalBy.set(tid, `guarda de PR repetida (active_pr) ${GUARD_MIN}+ em 10 min`);
+    else guardedBy.set(tid, `guarda repetida (${why}) ${GUARD_MIN}+ em 10 min`);
   }
 
   const lastBlock = db.prepare(
@@ -273,6 +285,8 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
       else add(t.assignee, t, 'blocked', at, firstLine(why) ?? '(bloqueou sem escrever o motivo)');
     } else if (guard) {
       add(t.assignee, t, 'guarded', t0, guard);
+    } else if (guardInternalBy.has(t.id)) {
+      add(t.assignee, t, 'internal', lastGuard.get(t.id) ?? t0, guardInternalBy.get(t.id));
     }
   }
 
