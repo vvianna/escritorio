@@ -44,6 +44,8 @@ export interface HermesCard {
   nota?: string;
   /** Epoch ms da nota (heartbeat/comentário) ou da criação do cartão (1ª linha do corpo). */
   notaEm?: number;
+  /** Perfil que criou o cartão (`created_by` do kanban), só quando é nome de perfil. */
+  criadoPor?: string;
 }
 
 /** Assinatura que paga a chamada de um trabalhador do Hermes (cor do selo da cadeira). */

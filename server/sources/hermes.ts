@@ -3,7 +3,8 @@
 //
 // Só leitura: cada ciclo abre os bancos com SQLite `mode=ro` (node:sqlite, readOnly) e fecha em seguida. Lê só as
 // tabelas `tasks`, `task_runs`, `task_events` e `task_comments` do kanban (colunas listadas nas consultas abaixo; dos
-// comentários e heartbeats só a nota mais recente do run, para a Atividade). Os state.db dos perfis NÃO são
+// comentários e heartbeats só a nota mais recente do run, para a Atividade; de `tasks` também quem criou o
+// cartão, e só quando é nome de perfil, ver PERFIL_RE). Os state.db dos perfis NÃO são
 // lidos aqui (a fonte de sessões/uso é outra). Nunca ler messages, system_prompt, title de sessão, chat_id, user_id,
 // .env, auth.json nem config.yaml.
 //
@@ -238,7 +239,11 @@ interface TaskRow {
   started_at: number | null;
   created_at: number;
   current_run_id: number | null;
+  criador: string | null;
 }
+
+/** Nome de perfil do Hermes (descarta vazio e origens como "telegram:123", e-mail, espaço ou dígito no começo). */
+const PERFIL_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
 /** Lê um board: o estado de cada cartão aberto (por perfil) e os perfis com cartão recente. `now` em ms. */
 export function readBoard(db: DatabaseSync, board: string, now: number): BoardRead {
@@ -263,6 +268,7 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
     if (!profile) return;
     const card: ProfileCard = { profile, board, taskId: task.id, title: task.title, state, at };
     if (reason) card.reason = reason;
+    if (task.criador && PERFIL_RE.test(task.criador)) card.criadoPor = task.criador;
     if (task.status === 'running' && (state === 'running' || state === 'guarded')) {
       card.liveSince = task.started_at ?? task.created_at;
       let run: number | null | undefined;
@@ -282,8 +288,8 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
 
   const tasks = db
     .prepare(
-      'SELECT id, title, status, assignee, consecutive_failures, last_heartbeat_at, started_at, created_at, current_run_id ' +
-        "FROM tasks WHERE status NOT IN ('done','archived')",
+      'SELECT id, title, status, assignee, consecutive_failures, last_heartbeat_at, started_at, created_at, current_run_id, ' +
+        "created_by AS criador FROM tasks WHERE status NOT IN ('done','archived')",
     )
     .all() as unknown as TaskRow[];
   const open = new Map(tasks.map((t) => [t.id, t]));
@@ -353,7 +359,10 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
 
   // Entregas recentes ao revisor (o cartão pode até já estar fechado).
   const since = Math.floor((now - DELIVER_MS) / 1000);
-  const titleOf = db.prepare('SELECT id, title, status, assignee, consecutive_failures, last_heartbeat_at, started_at, created_at, current_run_id FROM tasks WHERE id=?');
+  const titleOf = db.prepare(
+    'SELECT id, title, status, assignee, consecutive_failures, last_heartbeat_at, started_at, created_at, current_run_id, ' +
+      'created_by AS criador FROM tasks WHERE id=?',
+  );
   for (const r of db
     .prepare("SELECT task_id, kind, payload, created_at FROM task_events WHERE kind IN ('review_requested','assigned') AND created_at > ? ORDER BY id")
     .all(since) as Array<{ task_id: string; kind: string; payload: string | null; created_at: number }>) {
@@ -712,6 +721,7 @@ export class HermesSource implements AgentSource {
             state: card.state,
             ...(card.reason ? { reason: card.reason } : {}),
             ...(card.nota ? { nota: card.nota, notaEm: card.notaEm } : {}),
+            ...(card.criadoPor ? { criadoPor: card.criadoPor } : {}),
           }
         : undefined,
     );
