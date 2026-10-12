@@ -177,6 +177,37 @@ describe('readBoard', () => {
     expect(by.get('p5')!.reason).toContain('blocker_auth');
   });
 
+  it('nota do cartão: heartbeat/comentário mais recente do run atual; sem nenhum, 1ª linha do corpo', () => {
+    const path = join(tmp.dir, 'kanban.db');
+    makeDb(
+      path,
+      [
+        { id: 'hb', title: 'com heartbeat', status: 'running', assignee: 'p1', started_at: S - 600, last_heartbeat_at: S - 60 },
+        { id: 'cm', title: 'com comentário', status: 'running', assignee: 'p2', started_at: S - 600, last_heartbeat_at: S - 60 },
+        { id: 'bd', title: 'só corpo', status: 'running', assignee: 'p3', started_at: S - 600, last_heartbeat_at: S - 60 },
+      ],
+      [
+        ['hb', 'heartbeat', { note: 'de um run antigo' }, S - 900],
+        ['hb', 'heartbeat', { note: '  rodando   a suíte\ncompleta ' }, S - 120],
+        ['hb', 'heartbeat', null, S - 60],
+        ['cm', 'heartbeat', { note: 'build ok' }, S - 300],
+        ['bd', 'heartbeat', { note: 'antes do run' }, S - 700],
+      ],
+    );
+    const w = new DatabaseSync(path);
+    w.exec('CREATE TABLE task_comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL)');
+    w.prepare('INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)').run('cm', 'dev', '## HANDOFF\n**Estado:** PR aberto', S - 100);
+    w.prepare('INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?,?,?,?)').run('hb', 'dev', 'velho', S - 800);
+    w.prepare('UPDATE tasks SET body=? WHERE id=?').run('\n  Pedido do Victor: horário no celular.\nResto do corpo.', 'bd');
+    w.close();
+    const db = openReadOnly(path);
+    const by = pickCards(readBoard(db, 'default', NOW).cards);
+    db.close();
+    expect(by.get('p1')).toMatchObject({ nota: 'rodando a suíte completa', notaEm: (S - 120) * 1000 });
+    expect(by.get('p2')).toMatchObject({ nota: 'HANDOFF Estado: PR aberto', notaEm: (S - 100) * 1000 });
+    expect(by.get('p3')).toMatchObject({ nota: 'Pedido do Victor: horário no celular.', notaEm: (S - 3600) * 1000 });
+  });
+
   it('entrega antiga (> 3 min) não conta; reatribuição para o revisor conta para quem entregou', () => {
     const path = join(tmp.dir, 'kanban.db');
     makeDb(

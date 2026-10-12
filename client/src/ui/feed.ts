@@ -6,7 +6,7 @@ import type { UiComponent, UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setText, setTitle } from './dom';
 import { formatClock } from './format';
 import { ICONS } from './icons';
-import { shellDoneKind } from './model';
+import { feedCartao, shellDoneKind } from './model';
 import { officeIsEmpty } from './overlays';
 import { createAccountChip, updateAccountChip } from './widgets';
 
@@ -29,6 +29,8 @@ export class FeedPanel implements UiComponent {
   private filterNote: HTMLElement;
   /** Aparência/conta de cada agente que já apareceu (o feed sobrevive à saída do agente). */
   private meta = new Map<string, AgentMeta>();
+  /** Linhas de cartão do Hermes abertas (tocar abre/fecha o detalhe). */
+  private expanded = new Set<string>();
 
   constructor(private ctx: UiContext) {
     this.list = h('ol', { class: 'ui-feed__list', role: 'log', attrs: { 'aria-label': 'Eventos recentes', 'aria-live': 'off' } });
@@ -171,7 +173,8 @@ export class FeedPanel implements UiComponent {
     const btn = h(
       'button',
       { class: 'ui-feed__row', type: 'button' },
-      h('time', { class: 'ui-feed__time' }),
+      // Segundos à parte: no celular só cabe hh:mm.
+      h('time', { class: 'ui-feed__time' }, h('span'), h('span', { class: 'ui-feed__sec' })),
       avatar,
       h('span', { class: 'ui-feed__who' }),
       createAccountChip('sm'),
@@ -179,18 +182,38 @@ export class FeedPanel implements UiComponent {
       h('span', { class: 'ui-feed__icon', attrs: { 'aria-hidden': 'true' } }),
       h('span', { class: 'ui-feed__text' }),
     );
-    btn.addEventListener('click', () => {
+    const select = () => {
       if (this.ctx.agent(f.agentId)) this.ctx.select({ type: 'agent', id: f.agentId }, { focus: true });
       else if (this.ctx.store.room(f.roomId)) this.ctx.select({ type: 'room', id: f.roomId }, { focus: true });
+    };
+    const id = `ui-feed-more-${f.id.replace(/[^\w-]/g, '_')}`;
+    // Cartão do Hermes: tocar abre board · id, o que o agente está fazendo agora e há quanto tempo.
+    const more = h(
+      'div',
+      { class: 'ui-feed__more', hidden: true, attrs: { id } },
+      h('p', { class: 'ui-feed__ref' }),
+      h('p', { class: 'ui-feed__card' }),
+      h('p', { class: 'ui-feed__nota' }),
+      h('button', { class: 'ui-feed__go', type: 'button', text: 'Ver no escritório', on: { click: select } }),
+    );
+    btn.addEventListener('click', () => {
+      if (!f.activity.cartao) return select();
+      if (!this.expanded.delete(f.id)) this.expanded.add(f.id);
+      this.ctx.invalidate();
+      requestAnimationFrame(() => more.scrollIntoView?.({ block: 'nearest' }));
     });
-    return h('li', { class: 'ui-feed__item' }, btn);
+    if (f.activity.cartao) setAttr(btn, 'aria-controls', id);
+    return h('li', { class: 'ui-feed__item' }, btn, more);
   }
 
   private updateRow(li: HTMLElement, f: FeedItem): void {
     const btn = li.firstElementChild as HTMLElement;
     const [time, avatar, who, chip, room, icon, text] = btn.children as unknown as HTMLElement[];
     const m = this.meta.get(f.agentId);
-    setText(time, formatClock(f.activity.at));
+    const hm = formatClock(f.activity.at, false);
+    const full = formatClock(f.activity.at);
+    setText(time.children[0], hm);
+    setText(time.children[1], full.startsWith(hm) ? full.slice(hm.length) : '');
     setAttr(time, 'datetime', new Date(f.activity.at).toISOString());
     if (m) updateAvatar(avatar, m, 'xs');
     setText(who, f.agentName);
@@ -209,6 +232,20 @@ export class FeedPanel implements UiComponent {
     const present = !!this.ctx.agent(f.agentId);
     li.classList.toggle('is-gone', !present);
     setTitle(btn, `${formatClock(f.activity.at)} · ${f.agentName} em ${f.roomName}\n${f.activity.text}${f.activity.detail ? `\n${f.activity.detail}` : ''}`);
+
+    const more = li.lastElementChild as HTMLElement;
+    const info = feedCartao(f.activity, this.ctx.agent(f.agentId)?.hermes, this.ctx.now());
+    const open = !!info && this.expanded.has(f.id);
+    setHidden(more, !open);
+    li.classList.toggle('is-open', open);
+    setAttr(btn, 'aria-expanded', info ? String(open) : null);
+    if (!info || !open) return;
+    const [ref, card, nota, go] = more.children as unknown as HTMLElement[];
+    setText(ref, `${info.ref} · ${info.ha}`);
+    setText(card, info.titulo ?? '');
+    setHidden(card, !info.titulo);
+    setText(nota, info.nota ? `${info.notaHa ? `${info.notaHa} · ` : ''}${info.nota}` : 'Sem nota recente do agente neste cartão.');
+    setHidden(go, !present && !this.ctx.store.room(f.roomId));
   }
 
   private metaFromStore(id: string): AgentMeta | undefined {

@@ -37,6 +37,13 @@ export interface HermesCard {
   state: HermesCardState;
   /** Motivo curto (1ª linha do bloqueio, regra da placa vermelha, para quem entregou). */
   reason?: string;
+  /**
+   * O que o perfil está fazendo agora, até ~200 caracteres: nota do último heartbeat ou último comentário do run atual
+   * (o mais recente) ou, sem nenhum, a 1ª linha do corpo do cartão. Só texto do kanban.db.
+   */
+  nota?: string;
+  /** Epoch ms da nota (heartbeat/comentário) ou da criação do cartão (1ª linha do corpo). */
+  notaEm?: number;
 }
 
 /** Assinatura que paga a chamada de um trabalhador do Hermes (cor do selo da cadeira). */
@@ -141,6 +148,8 @@ export interface Activity {
   error?: boolean;
   /** Perguntas completas de um AskUserQuestion (kind 'ask'), para o escritório mostrar as opções. */
   questions?: AskQuestion[];
+  /** Cartão do kanban do Hermes a que a linha se refere (a Atividade mostra board, id e a nota ao tocar). */
+  cartao?: { board: string; taskId: string };
 }
 
 /**

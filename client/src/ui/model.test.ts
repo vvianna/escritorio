@@ -6,6 +6,7 @@ import {
   aggregateTasks,
   computeCounters,
   displayStatus,
+  feedCartao,
   FOREGROUND_WAIT_MS,
   groupRooms,
   hasRunningShells,
@@ -335,5 +336,20 @@ describe('textos da espera', () => {
     expect(shellDoneKind({ tool: 'ShellDone', error: true })).toBe('fail');
     expect(shellDoneKind({ tool: 'Bash', error: true })).toBeNull();
     expect(shellDoneKind(undefined)).toBeNull();
+  });
+  it('feedCartao: board · id sempre; título e nota só se o agente ainda está no cartão', () => {
+    const at = 1_000_000_000_000;
+    const act = { at, cartao: { board: 'escritorio', taskId: 't_1' } };
+    const card = { board: 'escritorio', taskId: 't_1', title: 'Atividade no celular', state: 'running' as const, nota: 'rodando os testes', notaEm: at + 4 * 60_000 };
+    expect(feedCartao({ at }, card, at)).toBeNull();
+    expect(feedCartao(act, card, at + 5 * 60_000)).toEqual({
+      ref: 'escritorio · t_1',
+      ha: 'há 5 min',
+      titulo: 'Atividade no celular',
+      nota: 'rodando os testes',
+      notaHa: 'há 1 min',
+    });
+    expect(feedCartao(act, { ...card, taskId: 't_2' }, at + 5 * 60_000)).toEqual({ ref: 'escritorio · t_1', ha: 'há 5 min' });
+    expect(feedCartao(act, undefined, at)).toEqual({ ref: 'escritorio · t_1', ha: 'agora' });
   });
 });
