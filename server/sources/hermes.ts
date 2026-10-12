@@ -38,7 +38,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AgentStatus, HermesCard, HermesCardState, HermesModelo, SourceInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
-import { CADEIRA_VELHA_MS, criarLeitorCadeiras, modeloDaCadeira, nomeModelo, type ConfigPerfil, type DadosCadeiras } from './hermes-cadeira';
+import { CADEIRA_VELHA_MS, criarLeitorCadeiras, modeloDaCadeira, nomeModelo, ultimoModeloDoPerfil, type ConfigPerfil, type DadosCadeiras } from './hermes-cadeira';
 import { HermesSlots, loadNomes, nomesPath, SINGLE_PROFILES, singleName, workerName } from './hermes-vagas';
 import type { AgentSource } from './source';
 
@@ -545,7 +545,8 @@ export class HermesSource implements AgentSource {
     for (const ch of chars) {
       const card = ch.card;
       if (!card || card.liveSince === undefined) {
-        office.setHermesModelo(ch.id, undefined);
+        // À toa (ou cartão sem worker): o último modelo que o perfil usou, marcado `ocioso`.
+        office.setHermesModelo(ch.id, ultimoModeloDoPerfil(dados, ch.profile));
         this.modelos.delete(ch.id);
         continue;
       }
