@@ -39,6 +39,34 @@ export interface HermesCard {
   reason?: string;
 }
 
+/** Assinatura que paga a chamada de um trabalhador do Hermes (cor do selo da cadeira). */
+export type HermesAssinatura = 'claude' | 'codex' | 'agy-gemini' | 'agy-claude' | 'grok' | 'outro';
+
+/**
+ * Provedor/modelo que a cadeira de um trabalhador do Hermes está usando AGORA (última chamada da sessão do worker, não
+ * o configurado). Ver server/sources/hermes-cadeira.ts.
+ */
+export interface HermesModelo {
+  assinatura: HermesAssinatura;
+  /** Texto curto do selo: "Claude", "Codex", "AG Gemini", "AG Claude", "Grok" ou o provedor. */
+  rotulo: string;
+  /** Id do modelo como o Hermes usa ("claude-opus-5-5"). */
+  model: string;
+  /** Nome legível ("Claude Opus 5.5"). */
+  nome: string;
+  provider: string;
+  /** Caiu para a reserva (fallback) neste cartão: o selo fica laranja com "↪ reserva". */
+  reserva?: boolean;
+  /** Nome do modelo principal (quando está na reserva). */
+  principal?: string;
+  /** Motivo da troca para a reserva: limite, créditos, demora, erro. */
+  motivo?: string;
+  /** Hora da última chamada vista (epoch ms). */
+  em?: number;
+  /** Quando a cópia do host (cadeiras.jsonl) foi gerada (epoch ms). */
+  copiadoEm?: number;
+}
+
 /**
  * Estado de alto nível de um agente — é o que dirige o comportamento do personagem.
  * - working: processando um turno (ocupado). Fica na mesa digitando.
@@ -217,6 +245,8 @@ export interface AgentInfo {
   hermesProfile?: string;
   /** Trabalhador do Hermes (um por cartão running): a vaga que ele ocupa na função, 1 = 1ª. Ausente = personagem da função. */
   hermesSlot?: number;
+  /** Trabalhador do Hermes com cartão running: provedor/modelo ao vivo da cadeira (ausente = sem dado). */
+  hermesModelo?: HermesModelo;
 }
 
 export interface RoomInfo {

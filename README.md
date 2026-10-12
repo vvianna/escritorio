@@ -16,7 +16,14 @@
 >   grava em `~/.cache/escritorio/uso.jsonl` só o metadado dos `state.db` (provedor, modelo, tokens, custo, horários,
 >   perfil), lidos com `mode=ro`. Agendar uma vez (o cron do Hermes só roda scripts de `~/.hermes/scripts/`):
 >   `printf '#!/usr/bin/env bash\nexec bash <repo>/tools/copiar-uso.sh "$@"\n' > ~/.hermes/scripts/escritorio-copiar-uso.sh`
->   e `hermes cron create --name escritorio-copiar-uso --script escritorio-copiar-uso.sh --no-agent --deliver local 'every 2m'`.
+>   e `hermes cron create --name escritorio-copiar-uso --script escritorio-copiar-uso.sh --no-agent --deliver local 'every 2m'`;
+> - **modelo ao vivo de cada cadeira**: o mesmo `tools/copiar-uso.sh` grava `~/.cache/escritorio/cadeiras.jsonl` com a
+>   última chamada de cada sessão (modelo/provedor, id do cartão do worker, troca para a reserva com motivo de
+>   vocabulário fixo) do `logs/agent.log` de cada perfil, as sessões kanban do `state.db` e, do `config.yaml` do perfil,
+>   SÓ `model.default`/`model.provider`/`fallback_providers` (lido no host por um filtro awk; o arquivo não vai para o
+>   container). A cadeira mostra um selo por assinatura (Claude, Codex, AG Gemini, AG Claude, Grok; modelo no hover),
+>   laranja "↪ reserva" quando cai para a reserva, e a Atividade ganha "passou de X para Y (reserva) — motivo: …" e
+>   "⚙️ <perfil>: modelo principal agora é X". Atraso: até um ciclo do cron (2 min).
 >
 > Ligar: `bash tools/copiar-uso.sh && bash tools/gerar-montagens.sh && docker compose up -d --build`. Desligar: `docker compose down`.
 > Não use `npm run docker:up` aqui (é o fluxo do Habblaud, que monta as pastas do Claude Code).

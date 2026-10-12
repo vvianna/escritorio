@@ -2,8 +2,10 @@
 // Abre pelo botão da barra superior ou com ?predio na URL (fica lembrado). Enquanto aberta, busca
 // GET /api/hermes/uso a cada 30 s (404 = fonte desligada; o prédio mostra só o que o snapshot tiver).
 // No ?mock=1 usa os dados de exemplo de predio-model.ts.
+import type { HermesModelo } from '../../../shared/types';
 import type { UiComponent, UiContext } from './context';
 import { h, iconButton, setHidden } from './dom';
+import { seloModelo } from './hermes-selo';
 import {
   exemploPredio,
   montarPredio,
@@ -174,7 +176,7 @@ export class PredioPanel implements UiComponent {
       'div',
       { class: `predio__cracha is-${o.estado}`, title: `${o.nome}: ${ROTULO_ESTADO[o.estado]}${o.board ? ` · board ${o.board}` : ''}` },
       h('span', { class: 'predio__icone', text: ICONE[o.estado], attrs: { 'aria-hidden': 'true' } }),
-      h('span', { class: 'predio__nome', text: o.nome }),
+      h('span', { class: 'predio__nome' }, h('span', { text: o.nome }), o.modelo ? this.selo(o.modelo) : null),
       h('span', { class: 'predio__estado', text: ROTULO_ESTADO[o.estado] }),
       o.detalhe ? h('span', { class: 'predio__detalhe', text: o.board ? `${o.board} · ${o.detalhe}` : o.detalhe }) : null,
     );
@@ -191,5 +193,11 @@ export class PredioPanel implements UiComponent {
       });
     }
     return el;
+  }
+
+  /** Selo de provedor/modelo da cadeira (cor da assinatura; laranja "↪ reserva" na reserva; modelo no hover). */
+  private selo(m: HermesModelo): HTMLElement {
+    const s = seloModelo(m);
+    return h('span', { class: `ui-hsel ui-hsel--${s.variante}`, text: s.texto, title: s.titulo, attrs: { 'data-testid': 'predio-selo' } });
   }
 }

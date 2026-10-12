@@ -1,6 +1,7 @@
 // Peças visuais reutilizadas pelos painéis: chip de conta (e o selo "Codex"), ponto de status, selo de papel, barra
 // de progresso.
-import type { AccountInfo, Activity, AgentInfo, AgentStatus, Provider } from '../../../shared/types';
+import type { AccountInfo, Activity, AgentInfo, AgentStatus, HermesModelo, Provider } from '../../../shared/types';
+import { seloModelo } from './hermes-selo';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { WORDMARK } from './icons';
 import { shellDoneKind, shellLine, shellStage, statusLabel, type ShellWait } from './model';
@@ -33,6 +34,24 @@ export function createProviderTag(extra = ''): HTMLElement {
 /** Mostra o selo só para o Codex (e não repete quando o nome da conta já diz "Codex"). */
 export function updateProviderTag(tag: HTMLElement, provider: Provider, accountName = ''): void {
   setHidden(tag, !showsProviderTag(provider, accountName));
+}
+
+/** Selo de provedor/modelo da cadeira de um trabalhador do Hermes (oculto sem AgentInfo.hermesModelo). */
+export function createModelSeal(): HTMLElement {
+  return h('span', { class: 'ui-hsel', hidden: true });
+}
+
+export function updateModelSeal(el: HTMLElement, modelo: HermesModelo | undefined, now = Date.now()): void {
+  if (!modelo) {
+    setHidden(el, true);
+    return;
+  }
+  const s = seloModelo(modelo, now);
+  setText(el, s.texto);
+  setVariant(el, 'ui-hsel--', s.variante);
+  setTitle(el, s.titulo);
+  setAttr(el, 'aria-label', `Modelo: ${s.titulo.split('\n')[0]}${modelo.reserva ? ', na reserva' : ''}`);
+  setHidden(el, false);
 }
 
 /** Quadradinho de status (pixel), com pulso quando precisa de você. */

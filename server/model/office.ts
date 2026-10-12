@@ -10,6 +10,7 @@ import type {
   AgentStatus,
   FeedItem,
   HermesCard,
+  HermesModelo,
   Notice,
   NoticeLevel,
   OfficeSnapshot,
@@ -381,6 +382,22 @@ export class Office {
     } else {
       delete info.hermes;
       delete info.title;
+    }
+    this.markDirty();
+  }
+
+  /** Provedor/modelo ao vivo da cadeira de um trabalhador do Hermes (undefined = sem dado). */
+  setHermesModelo(id: string, modelo: HermesModelo | undefined): void {
+    const rec = this.agents.get(id);
+    if (!rec) return;
+    const info = rec.info;
+    if (JSON.stringify(info.hermesModelo) === JSON.stringify(modelo)) return;
+    if (modelo) {
+      info.hermesModelo = { ...modelo };
+      info.model = modelo.model;
+    } else {
+      delete info.hermesModelo;
+      delete info.model;
     }
     this.markDirty();
   }

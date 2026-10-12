@@ -114,8 +114,9 @@ describe('tools/gerar-montagens.sh', () => {
 });
 
 describe('docker-compose.yml: fonte de uso pela cópia', () => {
-  it('aponta ESCRITORIO_USO e ESCRITORIO_AGY_COTA para /cache/escritorio', () => {
+  it('aponta ESCRITORIO_USO, ESCRITORIO_AGY_COTA e ESCRITORIO_CADEIRAS para /cache/escritorio', () => {
     expect(semComentarios).toMatch(/ESCRITORIO_USO: \/cache\/escritorio\/uso\.jsonl/);
     expect(semComentarios).toMatch(/ESCRITORIO_AGY_COTA: \/cache\/escritorio\/agy-cota\.tsv/);
+    expect(semComentarios).toMatch(/ESCRITORIO_CADEIRAS: \/cache\/escritorio\/cadeiras\.jsonl/);
   });
 });

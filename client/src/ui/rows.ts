@@ -7,10 +7,12 @@ import { activityFallback, shellLine, shellWaitIn, statusLabel } from './model';
 import {
   createAccountChip,
   createActivityLine,
+  createModelSeal,
   createRoleBadge,
   createStatusDot,
   updateAccountChip,
   updateActivityLine,
+  updateModelSeal,
   updateRoleBadge,
   updateShellActivityLine,
   updateStatusDot,
@@ -20,6 +22,8 @@ interface RowRefs {
   avatar: HTMLElement;
   name: HTMLElement;
   chip: HTMLElement;
+  /** Selo de provedor/modelo da cadeira (trabalhador do Hermes). */
+  seal: HTMLElement;
   role: HTMLElement;
   dot: HTMLElement;
   activity: HTMLElement;
@@ -36,6 +40,7 @@ export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, s
   const avatar = createAvatar(agent, size);
   const name = h('span', { class: 'ui-agent__name' });
   const chip = createAccountChip('sm');
+  const seal = createModelSeal();
   const role = createRoleBadge();
   const dot = createStatusDot();
   const activity = createActivityLine();
@@ -45,12 +50,12 @@ export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, s
     'button',
     { class: 'ui-agent', type: 'button' },
     avatar,
-    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, since, role), task, activity),
+    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, seal, since, role), task, activity),
     dot,
   );
   row.dataset.id = agent.id;
   row.addEventListener('click', () => onPick(row.dataset.id!));
-  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, size });
+  refs.set(row, { avatar, name, chip, seal, role, dot, activity, task, since, size });
   return row;
 }
 
@@ -73,6 +78,7 @@ export function updateAgentRow(
   setStyleVar(row, '--acc', account?.color ?? '#8b98b3');
   setText(r.name, agent.name);
   updateAccountChip(r.chip, account, agent.account, agent.provider);
+  updateModelSeal(r.seal, agent.hermesModelo, now);
   updateRoleBadge(r.role, agent);
   const title = agent.title?.trim() ?? '';
   setText(r.task, title);
