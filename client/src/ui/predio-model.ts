@@ -15,7 +15,7 @@ export interface AgentePredio {
   kind?: string;
   provider?: string;
   name: string;
-  hermes?: { board: string; taskId: string; title: string; state: EstadoCartao; reason?: string };
+  hermes?: { board: string; taskId: string; title: string; state: EstadoCartao; reason?: string; criadoPor?: string };
   /** Função do Hermes (AgentInfo.hermesProfile); o nome pode ser o da vaga ("Oswaldo Cruz (dev)"). */
   hermesProfile?: string;
   /** Vaga do trabalhador (um por cartão running), 1 = 1ª; ausente = personagem da função. */
