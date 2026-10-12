@@ -8,6 +8,7 @@ import { h, iconButton, setHidden } from './dom';
 import { seloModelo } from './hermes-selo';
 import {
   exemploPredio,
+  linhaCotas,
   montarPredio,
   ROTULO_ESTADO,
   tokensCurto,
@@ -136,7 +137,7 @@ export class PredioPanel implements UiComponent {
       h(
         'table',
         { class: 'predio__tabela' },
-        h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: '5 h' }), h('th', { text: '7 dias' }), h('th', { text: 'US$ 7 d', title: 'Custo estimado (o que a API cobraria); na assinatura é referência de peso' }))),
+        h('thead', {}, h('tr', {}, h('th', { text: '' }), h('th', { text: '5 h' }), h('th', { text: '7 dias' }), h('th', { class: 'predio__usd', text: '≈\u00a0US$ API', title: 'Preço estimado dos 7 dias se fosse API. Você paga a assinatura, não isso.' }))),
         h(
           'tbody',
           {},
@@ -144,7 +145,7 @@ export class PredioPanel implements UiComponent {
             h(
               'tr',
               { class: l.seteDias ? '' : 'is-zero' },
-              h('th', { text: l.rotulo }),
+              h('th', {}, l.rotulo, l.dica ? h('span', { class: 'predio__dica', text: l.dica }) : null),
               h('td', { text: tokensCurto(l.cincoHoras) }),
               h('td', { text: tokensCurto(l.seteDias) }),
               h('td', { text: l.custo7dUsd ? l.custo7dUsd.toLocaleString('pt-BR', { maximumFractionDigits: l.custo7dUsd < 10 ? 2 : 0 }) : '—' }),
@@ -152,7 +153,8 @@ export class PredioPanel implements UiComponent {
           ),
         ),
       ),
-      v.cotas.length ? h('div', { class: 'predio__cotas', text: v.cotas.map((c) => `${c.familia} (${c.janela}): ${Math.round(c.restantePct)}% livre`).join(' · ') }) : null,
+      h('div', { class: 'predio__cotas', text: '≈ US$ API: quanto custariam os 7 dias se fosse API. Você paga a assinatura, não isso.' }),
+      v.cotas.length ? h('div', { class: 'predio__cotas', text: linhaCotas(v.cotas) }) : null,
       v.aviso ? h('div', { class: 'predio__aviso', text: v.aviso }) : null,
     );
     const andares = v.andares.map((a) =>

@@ -7932,6 +7932,7 @@ html.is-replay #world {
 }
 .predio__tabela th:first-child {
   text-align: left;
+  white-space: normal;
 }
 .predio__tabela thead th {
   color: var(--ui-muted);
@@ -7939,6 +7940,16 @@ html.is-replay #world {
 }
 .predio__tabela tr.is-zero {
   color: var(--ui-faint);
+}
+.predio__tabela thead th.predio__usd {
+  white-space: normal;
+}
+.predio__dica {
+  display: block;
+  color: var(--ui-muted);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: normal;
 }
 .predio__cotas,
 .predio__aviso,

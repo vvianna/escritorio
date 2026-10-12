@@ -90,8 +90,11 @@ export const PLANTA: AndarDef[] = [
 /** Perfis de persona (térreo): nunca mostram cartão nem conversa, só "conversando" / "à toa". */
 export const PERSONAS = new Set(PLANTA.find((a) => a.id === 'terreo')!.salas.flatMap((s) => s.perfis));
 
-/** Assinaturas fixas do topo, na ordem do escritorio.md. */
-export const ASSINATURAS = ['Claude', 'ChatGPT', 'Gemini', 'Grok'] as const;
+/** Assinaturas fixas do topo, na ordem do escritorio.md. O Gemini do Victor vem pelo Antigravity (agy). */
+export const ASSINATURAS = ['Claude', 'ChatGPT', 'Antigravity (Gemini)', 'Grok'] as const;
+
+/** Dica visível debaixo do rótulo de uma linha do uso. */
+const DICA_LINHA: Record<string, string> = { Desconhecido: 'sessões sem provedor registrado' };
 
 /** Nome que aparece no crachá. */
 export function apelido(perfil: string): string {
@@ -138,6 +141,7 @@ export interface LinhaUso {
   cincoHoras: number;
   seteDias: number;
   custo7dUsd: number;
+  dica?: string;
 }
 
 export interface PredioVista {
@@ -165,13 +169,14 @@ export const ROTULO_ESTADO: Record<EstadoOcupante, string> = {
 
 /**
  * Assinatura do topo a que um billing_provider pertence. O servidor rotula o Antigravity como "Antigravity" e deixa a
- * reserva como "fallback_chain[0](anthropic)": aqui o Antigravity conta como Gemini e a reserva pelo provedor de dentro.
+ * reserva como "fallback_chain[0](anthropic)": aqui o Antigravity soma na linha "Antigravity (Gemini)" e a reserva pelo
+ * provedor de dentro.
  */
 export function assinaturaDoUso(p: UsoProvedor): string {
   const prov = (/^fallback_chain\[\d+\]\((.*)\)$/.exec(p.provedor)?.[1] ?? p.provedor).toLowerCase();
   if (prov.startsWith('anthropic') || prov.startsWith('claude')) return 'Claude';
   if (prov.startsWith('openai') || prov.startsWith('chatgpt') || prov.startsWith('codex')) return 'ChatGPT';
-  if (prov.startsWith('antigravity') || prov.startsWith('agy') || prov.startsWith('google') || prov.startsWith('gemini')) return 'Gemini';
+  if (prov.startsWith('antigravity') || prov.startsWith('agy') || prov.startsWith('google') || prov.startsWith('gemini')) return 'Antigravity (Gemini)';
   if (prov.startsWith('xai') || prov.startsWith('grok')) return 'Grok';
   return p.rotulo;
 }
@@ -183,7 +188,7 @@ export function linhasUso(uso: UsoHermes | null | undefined): LinhaUso[] {
   const pega = (p: UsoProvedor) => {
     const r = assinaturaDoUso(p);
     let l = linhas.get(r);
-    if (!l) linhas.set(r, (l = { rotulo: r, cincoHoras: 0, seteDias: 0, custo7dUsd: 0 }));
+    if (!l) linhas.set(r, (l = { rotulo: r, cincoHoras: 0, seteDias: 0, custo7dUsd: 0, ...(DICA_LINHA[r] ? { dica: DICA_LINHA[r] } : {}) }));
     return l;
   };
   for (const p of uso?.cincoHoras ?? []) pega(p).cincoHoras += p.total || 0;
@@ -193,6 +198,30 @@ export function linhasUso(uso: UsoHermes | null | undefined): LinhaUso[] {
     l.custo7dUsd += p.custoEstimadoUsd || 0;
   }
   return [...linhas.values()];
+}
+
+/** Família da cota do Antigravity em português curto ("Claude and GPT models" -> "Claude/GPT"). */
+export function familiaCota(familia: string): string {
+  const f = familia.toLowerCase();
+  if (f.includes('claude') || f.includes('gpt')) return 'Claude/GPT';
+  if (f.includes('gemini')) return 'Gemini';
+  return familia.replace(/\s+models?$/i, '');
+}
+
+/**
+ * Linha da cota do Antigravity (agy): quanto sobra por família e janela. É a cota do Antigravity, não a das
+ * assinaturas Claude/ChatGPT do Victor. Ex.: "Cota do Antigravity livre: Claude/GPT 100% (5 h), 100% (7 d) · Gemini 85% (7 d)".
+ */
+export function linhaCotas(cotas: readonly CotaAgy[]): string | undefined {
+  if (!cotas.length) return undefined;
+  const curta: Record<string, string> = { '5 h': '5 h', '7 dias': '7 d' };
+  const porFamilia = new Map<string, string[]>();
+  for (const c of cotas) {
+    const f = familiaCota(c.familia);
+    if (!porFamilia.has(f)) porFamilia.set(f, []);
+    porFamilia.get(f)!.push(`${Math.round(c.restantePct)}% (${curta[c.janela] ?? c.janela})`);
+  }
+  return `Cota do Antigravity livre: ${[...porFamilia].map(([f, js]) => `${f} ${js.join(', ')}`).join(' · ')}`;
 }
 
 /** Como está a leitura de GET /api/hermes/uso: ainda não respondeu, respondeu, 404 (fonte desligada) ou falhou. */
