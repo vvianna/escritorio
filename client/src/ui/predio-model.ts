@@ -14,6 +14,10 @@ export interface AgentePredio {
   provider?: string;
   name: string;
   hermes?: { board: string; taskId: string; title: string; state: EstadoCartao; reason?: string };
+  /** Função do Hermes (AgentInfo.hermesProfile); o nome pode ser o da vaga ("Oswaldo Cruz (dev)"). */
+  hermesProfile?: string;
+  /** Vaga do trabalhador (um por cartão running), 1 = 1ª; ausente = personagem da função. */
+  hermesSlot?: number;
 }
 
 /** Recorte de GET /api/hermes/uso (sources/hermes-uso.ts). */
@@ -171,15 +175,18 @@ export function linhasUso(uso: UsoHermes | null | undefined): LinhaUso[] {
 
 /** Monta o prédio a partir dos agentes do snapshot e do uso (ambos podem faltar). */
 export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | null | undefined): PredioVista {
+  // Um crachá por personagem: o da função e um por trabalhador (vaga), todos na sala da função.
   const ocupantes = new Map<string, Ocupante>();
-  for (const a of agentes) {
-    if (a.provider !== 'hermes' || (a.kind && a.kind !== 'main')) continue;
-    const perfil = a.name;
+  const hermes = agentes
+    .filter((a) => a.provider === 'hermes' && (!a.kind || a.kind === 'main'))
+    .sort((a, b) => (a.hermesSlot ?? 0) - (b.hermesSlot ?? 0));
+  for (const a of hermes) {
+    const perfil = a.hermesProfile ?? a.name;
     if (PERSONAS.has(perfil)) continue; // persona nunca mostra cartão
     const c = a.hermes;
-    ocupantes.set(perfil, {
+    ocupantes.set(a.id, {
       perfil,
-      nome: apelido(perfil),
+      nome: a.name !== perfil ? a.name : apelido(perfil),
       estado: c ? c.state : 'cafe',
       detalhe: c ? (c.state === 'blocked' || c.state === 'guarded' ? c.reason || c.title : c.title) : undefined,
       board: c?.board,
@@ -187,9 +194,10 @@ export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | 
     });
   }
   const conversa = new Map((uso?.personas ?? []).map((p) => [p.perfil, p.conversando]));
-  for (const perfil of PERSONAS) ocupantes.set(perfil, { perfil, nome: perfil, estado: conversa.get(perfil) ? 'conversando' : 'fora' });
+  for (const perfil of PERSONAS) ocupantes.set(`persona:${perfil}`, { perfil, nome: perfil, estado: conversa.get(perfil) ? 'conversando' : 'fora' });
 
   const usados = new Set<string>();
+  const todosOcupantes = [...ocupantes.values()];
   const andares: AndarVista[] = PLANTA.map((andar) => ({
     id: andar.id,
     titulo: andar.titulo,
@@ -199,8 +207,7 @@ export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | 
       objeto: s.objeto,
       ocupantes: s.perfis.flatMap((p) => {
         usados.add(p);
-        const o = ocupantes.get(p);
-        return o ? [o] : [];
+        return todosOcupantes.filter((o) => o.perfil === p);
       }),
     })),
   }));

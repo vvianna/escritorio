@@ -20,6 +20,12 @@
 //   reviewer/judge/qa/auditor (vale para o `from`);
 // - running: status running do assignee.
 // Perfil sem nada disso mas com cartão mexido nos últimos IDLE_DAYS dias fica no escritório à toa (café).
+//
+// Um personagem por trabalhador (modelo 1, ver sources/hermes-vagas.ts): cada cartão com status running de um perfil
+// que não é persona nem o Manager (SINGLE_PROFILES) vira um personagem próprio, com o nome da vaga que ocupa
+// ("Oswaldo Cruz (dev)", nomes em <HERMES_ROOT>/time/nomes.json; sem nome, "dev #1"). O personagem da função (nome =
+// perfil) fica só com o resto (bloqueio, placa vermelha, entrega, à toa) e não aparece à toa enquanto a função tem
+// trabalhadores rodando. Personas e o Manager seguem com um personagem só.
 // Cartão destravado (saiu de blocked/internal ou foi reatribuído): a mão do perfil anterior abaixa e o "✋ Precisa de
 // você" fica na Atividade marcado como "✅ Resolvido pelo Manager".
 import { existsSync, readdirSync } from 'node:fs';
@@ -28,6 +34,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { AgentStatus, HermesCard, HermesCardState, SourceInfo } from '../../shared/types';
 import { errMsg, log } from '../log';
 import type { Office } from '../model/office';
+import { HermesSlots, loadNomes, nomesPath, SINGLE_PROFILES, singleName, workerName } from './hermes-vagas';
 import type { AgentSource } from './source';
 
 export const GUARD_WINDOW_S = 10 * 60;
@@ -53,6 +60,8 @@ export interface ProfileCard extends HermesCard {
   profile: string;
   /** Epoch s do que decidiu o estado (para desempate: o mais recente vence). */
   at: number;
+  /** Cartão com status running no kanban (tem um trabalhador rodando): epoch s de quando começou. */
+  liveSince?: number;
 }
 
 export interface BoardRead {
@@ -164,6 +173,7 @@ export function readBoard(db: DatabaseSync, board: string, now: number): BoardRe
     if (!profile) return;
     const card: ProfileCard = { profile, board, taskId: task.id, title: task.title, state, at };
     if (reason) card.reason = reason;
+    if (task.status === 'running' && (state === 'running' || state === 'guarded')) card.liveSince = task.started_at ?? task.created_at;
     cards.push(card);
   };
 
@@ -306,6 +316,10 @@ export interface HermesSourceOptions {
   root: string;
   now?: () => number;
   pollMs?: number;
+  /** nomes.json das vagas (padrão <root>/time/nomes.json). */
+  nomesFile?: string;
+  /** Onde guardar o mapa cartão → vaga (no Docker, /data/hermes-vagas.json); null/ausente = só em memória. */
+  slotsFile?: string | null;
 }
 
 interface BoardState extends HermesBoard {
@@ -313,16 +327,32 @@ interface BoardState extends HermesBoard {
   error?: string;
 }
 
+/** Um personagem deste ciclo: o da função (um por perfil) ou o de um trabalhador (um por cartão running). */
+interface Character {
+  id: string;
+  profile: string;
+  board: string;
+  name: string;
+  role: string;
+  card?: ProfileCard;
+  /** Vaga do trabalhador (1 = 1ª); ausente no personagem da função. */
+  slot?: number;
+}
+
+const WORKER_ROLE = 'Trabalhador do Hermes';
+
 export class HermesSource implements AgentSource {
   readonly provider = 'hermes' as const;
   private boards: BoardState[] = [];
-  /** Perfil → board da sala atual. */
+  /** Id do personagem → board da sala atual. */
   private present = new Map<string, string>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly now: () => number;
+  private readonly slots: HermesSlots;
 
   constructor(private readonly opts: HermesSourceOptions) {
     this.now = opts.now ?? Date.now;
+    this.slots = new HermesSlots(opts.slotsFile ?? null);
   }
 
   start(): void {
@@ -381,75 +411,132 @@ export class HermesSource implements AgentSource {
         b.ok = false;
         b.error = errMsg(err);
         log.warnOnce(`hermes-board:${b.board}:${b.error}`, `Hermes: não consegui ler o board ${b.board} (${b.error}).`);
-      } finally {
-        db?.close();
       }
+      db?.close();
     }
-    const picked = pickCards(cards);
-    const profiles = new Set([...picked.keys(), ...recent.keys()]);
-    const office = this.opts.office;
-    for (const profile of profiles) {
+    const failed = new Set(this.boards.filter((b) => !b.ok).map((b) => b.board));
+    const nomes = loadNomes(this.opts.nomesFile ?? nomesPath(this.opts.root));
+
+    // Trabalhadores: um por cartão running (fora personas e Manager); quem começou antes pega a vaga mais baixa.
+    const live = cards
+      .filter((c) => c.liveSince !== undefined && !SINGLE_PROFILES.has(c.profile))
+      .sort((a, b) => a.liveSince! - b.liveSince! || a.board.localeCompare(b.board) || a.taskId.localeCompare(b.taskId));
+    this.slots.sync(live, failed);
+    const chars: Character[] = [];
+    const working = new Set<string>();
+    for (const c of live) {
+      const slot = this.slots.get(c.profile, c.board, c.taskId) ?? 0;
+      working.add(c.profile);
+      chars.push({
+        id: `hermes:${c.profile}:${c.board}:${c.taskId}`,
+        profile: c.profile,
+        board: c.board,
+        name: workerName(c.profile, slot, nomes),
+        role: `${WORKER_ROLE} (${c.profile}, vaga ${slot + 1})`,
+        card: c,
+        slot: slot + 1,
+      });
+    }
+
+    // Personagem da função: o resto (bloqueio, placa vermelha, entrega) ou à toa — à toa só se a função não tem
+    // ninguém rodando.
+    const liveSet = new Set(live);
+    const picked = pickCards(cards.filter((c) => !liveSet.has(c)));
+    for (const profile of new Set([...picked.keys(), ...recent.keys()])) {
       const card = picked.get(profile);
-      const board = card?.board ?? recent.get(profile)!.board;
-      const id = `hermes:${profile}`;
-      const status = statusOf(card?.state);
-      if (!office.has(id) || office.get(id)?.status === 'offline') {
-        office.addMain({
-          id,
-          provider: 'hermes',
-          account: 'hermes',
-          sessionId: id,
-          cwd: roomCwd(board),
-          role: ROLE,
-          name: profile,
-          startedAt: card ? card.at * 1000 : now,
-          status,
-          waitingFor: waitingOf(card),
-        });
-      } else {
-        office.moveMain(id, roomCwd(board));
-        office.setStatus(id, status, waitingOf(card));
-      }
-      const prev = office.get(id)?.hermes;
-      // Destravado (saiu de blocked, ou foi reatribuído a outro perfil): a mão abaixa e o "✋ Precisa de você" fica no
-      // histórico marcado como resolvido. Se não houver outro cartão, o balão passa a ser esse "✅ resolvido".
-      if (prev && HAND.has(prev.state) && !cards.some((c) => c.profile === profile && c.board === prev.board && c.taskId === prev.taskId && c.state === prev.state)) {
-        const prefix = `${id}#${prev.board}:${prev.taskId}:${prev.state}:`;
-        office.rewriteActivities(
-          id,
-          (a) => a.id.startsWith(prefix) && a.icon !== RESOLVED_ICON,
-          (a) => ({
-            ...a,
-            kind: 'done',
-            icon: RESOLVED_ICON,
-            text: `Resolvido pelo Manager: ${prev.title}`.slice(0, 46),
-            detail: `${a.detail ?? `${prev.board} · ${prev.taskId}`} · era: ${VERB[prev.state]}`.slice(0, 300),
-          }),
-          !card,
-        );
-      }
-      office.setHermes(id, card ? { board: card.board, taskId: card.taskId, title: card.title, state: card.state, ...(card.reason ? { reason: card.reason } : {}) } : undefined);
-      if (card && (prev?.taskId !== card.taskId || prev?.state !== card.state)) {
-        office.addActivity(
-          id,
-          {
-            id: `${id}#${card.board}:${card.taskId}:${card.state}:${card.at}`,
-            kind: card.state === 'delivering' ? 'communicate' : card.state === 'running' || card.state === 'internal' ? 'other' : 'wait',
-            icon: ICON[card.state],
-            text: `${VERB[card.state]}: ${card.title}`.slice(0, 46),
-            detail: `${card.board} · ${card.taskId}${card.reason ? ` · ${card.reason}` : ''}`,
-            tool: 'Hermes',
-            at: card.at * 1000,
-          },
-          true,
-        );
-      }
-      this.present.set(profile, board);
+      if (!card && working.has(profile)) continue;
+      chars.push({
+        id: `hermes:${profile}`,
+        profile,
+        board: card?.board ?? recent.get(profile)!.board,
+        name: SINGLE_PROFILES.has(profile) ? singleName(profile, nomes) : profile,
+        role: ROLE,
+        card,
+      });
     }
-    for (const profile of [...this.present.keys()]) {
-      if (profiles.has(profile)) continue;
-      office.closeMain(`hermes:${profile}`);
-      this.present.delete(profile);
+
+    const seen = new Set<string>();
+    for (const ch of chars) {
+      this.upsert(ch, cards, now);
+      seen.add(ch.id);
     }
+    for (const [id, board] of [...this.present]) {
+      if (seen.has(id) || failed.has(board)) continue;
+      this.resolveHand(id, cards, true);
+      this.opts.office.closeMain(id);
+      this.present.delete(id);
+    }
+  }
+
+  /** Cria ou acerta um personagem com o cartão que ele mostra. */
+  private upsert(ch: Character, cards: readonly ProfileCard[], now: number): void {
+    const office = this.opts.office;
+    const { id, card } = ch;
+    const status = statusOf(card?.state);
+    if (!office.has(id) || office.get(id)?.status === 'offline') {
+      office.addMain({
+        id,
+        provider: 'hermes',
+        account: 'hermes',
+        sessionId: id,
+        cwd: roomCwd(ch.board),
+        role: ch.role,
+        name: ch.name,
+        hermesProfile: ch.profile,
+        ...(ch.slot ? { hermesSlot: ch.slot } : {}),
+        startedAt: card ? (card.liveSince ?? card.at) * 1000 : now,
+        status,
+        waitingFor: waitingOf(card),
+      });
+    } else {
+      office.moveMain(id, roomCwd(ch.board));
+      office.setStatus(id, status, waitingOf(card));
+    }
+    const prev = office.get(id)?.hermes;
+    this.resolveHand(id, cards, !card);
+    office.setHermes(id, card ? { board: card.board, taskId: card.taskId, title: card.title, state: card.state, ...(card.reason ? { reason: card.reason } : {}) } : undefined);
+    if (card && (prev?.taskId !== card.taskId || prev?.state !== card.state)) {
+      office.addActivity(
+        id,
+        {
+          id: `${id}#${card.board}:${card.taskId}:${card.state}:${card.at}`,
+          kind: card.state === 'delivering' ? 'communicate' : card.state === 'running' || card.state === 'internal' ? 'other' : 'wait',
+          icon: ICON[card.state],
+          text: `${VERB[card.state]}: ${card.title}`.slice(0, 46),
+          detail: `${card.board} · ${card.taskId}${card.reason ? ` · ${card.reason}` : ''}`,
+          tool: 'Hermes',
+          at: card.at * 1000,
+        },
+        true,
+      );
+    }
+    this.present.set(id, ch.board);
+  }
+
+  /**
+   * Destravado (saiu de blocked, ou foi reatribuído a outro perfil): a mão abaixa e o "✋ Precisa de você" fica no
+   * histórico marcado como resolvido. `current` = sem outro cartão: o balão passa a ser esse "✅ resolvido".
+   */
+  private resolveHand(id: string, cards: readonly ProfileCard[], current: boolean): void {
+    const office = this.opts.office;
+    const info = office.get(id);
+    const prev = info?.hermes;
+    const profile = info?.hermesProfile;
+    if (!prev || !HAND.has(prev.state)) return;
+    if (cards.some((c) => c.profile === profile && c.board === prev.board && c.taskId === prev.taskId && c.state === prev.state)) return;
+    const prefix = `${id}#${prev.board}:${prev.taskId}:${prev.state}:`;
+    office.rewriteActivities(
+      id,
+      (a) => a.id.startsWith(prefix) && a.icon !== RESOLVED_ICON,
+      (a) => ({
+        ...a,
+        kind: 'done',
+        icon: RESOLVED_ICON,
+        text: `Resolvido pelo Manager: ${prev.title}`.slice(0, 46),
+        detail: `${a.detail ?? `${prev.board} · ${prev.taskId}`} · era: ${VERB[prev.state]}`.slice(0, 300),
+      }),
+      current,
+    );
+    if (current) office.setHermes(id, undefined);
   }
 }

@@ -210,6 +210,13 @@ export interface AgentInfo {
   canMessage?: boolean;
   /** Perfil do Hermes (provider 'hermes'): o cartão que ele mostra agora; ausente = à toa. */
   hermes?: HermesCard;
+  /**
+   * Perfil (função) do Hermes deste personagem. O nome pode ser o da vaga ("Oswaldo Cruz (dev)"): para saber a função,
+   * use este campo, não o nome.
+   */
+  hermesProfile?: string;
+  /** Trabalhador do Hermes (um por cartão running): a vaga que ele ocupa na função, 1 = 1ª. Ausente = personagem da função. */
+  hermesSlot?: number;
 }
 
 export interface RoomInfo {

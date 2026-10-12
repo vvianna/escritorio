@@ -51,6 +51,23 @@ describe('prédio', () => {
     expect(montarPredio([], null).vazio).toBe(true);
   });
 
+  it('um crachá por trabalhador, com o nome da vaga, na sala da função', () => {
+    const card = (t: string) => ({ board: 'escritorio', taskId: t, title: `cartão ${t}`, state: 'running' as const });
+    const agentes: AgentePredio[] = [
+      { id: 'hermes:dev', provider: 'hermes', name: 'dev', hermesProfile: 'dev', hermes: { ...card('t_b'), state: 'blocked', reason: 'precisa' } },
+      { id: 'hermes:dev:escritorio:t_2', provider: 'hermes', name: 'dev #2', hermesProfile: 'dev', hermesSlot: 2, hermes: card('t_2') },
+      { id: 'hermes:dev:escritorio:t_1', provider: 'hermes', name: 'Oswaldo Cruz (dev)', hermesProfile: 'dev', hermesSlot: 1, hermes: card('t_1') },
+      { id: 'hermes:default', provider: 'hermes', name: 'Hermes (default)', hermesProfile: 'default' },
+    ];
+    const v = montarPredio(agentes, null);
+    const devs = v.andares.find((a) => a.id === 'ti')!.salas.find((s) => s.id === 'devs')!;
+    expect(devs.ocupantes.map((o) => o.nome)).toEqual(['dev', 'Oswaldo Cruz (dev)', 'dev #2']);
+    expect(v.trabalhando).toBe(2);
+    expect(v.portoes).toBe(1);
+    expect(ocupante(v, 'default')?.nome).toBe('Hermes (default)');
+    expect(v.andares.find((a) => a.id === 'ti')!.salas.some((s) => s.id === 'extra')).toBe(false);
+  });
+
   it('painel de uso: as 4 assinaturas sempre, somando por rótulo', () => {
     const l = linhasUso({
       geradoEm: 0,
