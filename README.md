@@ -967,6 +967,15 @@ O Docker Desktop só compartilha algumas pastas do Mac com os containers (por pa
 
 </details>
 
+## Prédio do time (fork escritorio, fase 4)
+
+O botão do prédio na barra superior (ou `?predio` na URL) abre o time do Hermes por andar: cobertura (Victor, com
+a placa de portões esperando), 3º Produto, 2º TI (Manager, PLs, devs, architect, QA, Segurança, Deployer, Plantão) e
+térreo (personas: só "conversando" / "à toa", nunca o conteúdo). No topo, o uso por assinatura (Claude · ChatGPT ·
+Gemini · Grok) em 5 h e 7 dias, de `GET /api/hermes/uso`. Com `?mock=1&predio` mostra dados de exemplo.
+Desligar o escritório: `bash tools/desfazer-fase4.sh` (`DRY=1` só mostra o plano); confere a porta fechada no fim.
+O Hermes não muda.
+
 ## Aviso
 
 O Habblaud é um projeto independente, **não afiliado, patrocinado nem endossado pela Anthropic**. "Claude" e
