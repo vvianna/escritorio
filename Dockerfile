@@ -17,7 +17,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY . .
-RUN npm run build
+# Trava somente leitura do escritório (server/somente-leitura.ts): vazio = desligada; 1 = build somente leitura.
+ARG ESCRITORIO_SOMENTE_LEITURA=
+RUN ESCRITORIO_SOMENTE_LEITURA="$ESCRITORIO_SOMENTE_LEITURA" npm run build
 
 # ---------------------------------------------------------------------------------------------
 # Estágio 2: runtime enxuto. O servidor não tem dependências de runtime (só módulos node:*),

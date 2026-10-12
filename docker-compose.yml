@@ -1,51 +1,61 @@
-# Habblaud no Docker local.
+# Escritório do time de agentes do Hermes (fork do Habblaud), SÓ pela Tailscale.
 #
-# Suba com `npm run docker:up`: o script detecta as contas do Claude Code no host e gera o
-# docker-compose.override.yml (fora do controle de versão) com:
-#   - montagens SOMENTE LEITURA de <conta>/projects e <conta>/sessions em /claude/<conta>/...
-#     (nunca a pasta inteira da conta: lá ficam credenciais e configurações) e de ~/.habblaud/usage
-#     (uso de 5h/semanal capturado pelo tap de statusline) em /usage;
-#   - do Codex, SOMENTE <pasta>/sessions, <pasta>/archived_sessions e <pasta>/thread-writer-locks em
-#     /codex/<conta>/... (nunca auth.json, config.toml, history.jsonl, logs nem os bancos SQLite);
-#   - HABBLAUD_CLAUDE_DIRS, HABBLAUD_CODEX_DIRS, HABBLAUD_ACCOUNTS e HABBLAUD_USAGE_DIR.
-# O Compose mescla o override automaticamente em qualquer `docker compose ...` rodado nesta pasta.
-name: habblaud
+# Regras (spec time-de-agentes, fase 4, escritorio.md "Regras de segurança"):
+#   - porta publicada SÓ no IP Tailscale do Gargantua (100.83.157.12): nada em 0.0.0.0 nem em 127.0.0.1,
+#     nada de túnel. O IP fica fixo aqui de propósito (não vem do .env);
+#   - nenhuma montagem gravável: os bancos do Hermes entram read-only pelo docker-compose.override.yml
+#     gerado por `bash tools/gerar-montagens.sh` (só kanban.db e state.db, nunca .env/auth.json/config.yaml);
+#     o estado do próprio escritório (/data) e o /tmp ficam em tmpfs (memória, some ao parar);
+#   - trava somente leitura (server/somente-leitura.ts) DESLIGADA por padrão: as rotas de escrita do Habblaud
+#     funcionam como antes. Para ligar, só com flag explícita no build:
+#     `ESCRITORIO_SOMENTE_LEITURA=1 docker compose up -d --build` (aí nada em execução religa a escrita);
+#   - NÃO use `npm run docker:up` (é o fluxo do Habblaud: monta as pastas do Claude Code).
+#
+# Ligar é passo do Victor: `bash tools/gerar-montagens.sh && docker compose up -d --build`.
+# Desligar (= desfazer a fase 4): `docker compose down`.
+name: escritorio
 
 services:
-  habblaud:
-    build: .
-    image: habblaud:local
-    container_name: habblaud
+  escritorio:
+    build:
+      context: .
+      args:
+        # Vazio = trava desligada (padrão). 1 = build somente leitura.
+        ESCRITORIO_SOMENTE_LEITURA: ${ESCRITORIO_SOMENTE_LEITURA:-}
+    image: escritorio:local
+    container_name: escritorio
     restart: unless-stopped
-    # Os transcripts são sensíveis: por padrão a porta é publicada SÓ na interface local do host
-    # (HABBLAUD_BIND=0.0.0.0 no .env libera a rede local; veja o README).
     ports:
-      - "${HABBLAUD_BIND:-127.0.0.1}:${HABBLAUD_PORT:-4747}:4747"
-    volumes:
-      - habblaud-data:/data
-    # Opções que podem vir do .env (ou do ambiente) para dentro do container.
+      - "100.83.157.12:${ESCRITORIO_PORTA:-4747}:4747"
     environment:
-      HABBLAUD_ALLOWED_HOSTS: ${HABBLAUD_ALLOWED_HOSTS:-}
-      HABBLAUD_DEMO: ${HABBLAUD_DEMO:-}
-      # O mesmo valor da porta publicada acima: o terminal (e o que age sobre as sessões) só liga com bind local.
-      HABBLAUD_BIND: ${HABBLAUD_BIND:-127.0.0.1}
+      # Nome extra aceito no cabeçalho Host (IPs, como 100.83.157.12, sempre valem).
+      HABBLAUD_ALLOWED_HOSTS: ${ESCRITORIO_HOSTS:-gargantua}
+      HABBLAUD_BIND: 100.83.157.12
+      # Como no Habblaud original: vazio = padrão do Habblaud; "0" desliga (terminal, mensagens, Codex).
       HABBLAUD_TERMINAL: ${HABBLAUD_TERMINAL:-}
-      # 0 desliga as mensagens pelo escritório (mandar mensagens aos agentes pela página e pelo terminal).
       HABBLAUD_MENSAGENS: ${HABBLAUD_MENSAGENS:-}
-      # 0 desliga a verificação de versão nova (consulta às releases no GitHub a cada 6 h).
-      HABBLAUD_UPDATE_CHECK: ${HABBLAUD_UPDATE_CHECK:-}
-      # 0 desliga as sessões do Codex no escritório.
       HABBLAUD_CODEX: ${HABBLAUD_CODEX:-}
-    # Endurecimento: sistema de arquivos só leitura (exceto /data e /tmp), sem capabilities extras.
+      # Saídas para a internet (timelapse/GitHub) seguem desligadas por padrão; "1" no .env religa.
+      HABBLAUD_TIMELINE: ${HABBLAUD_TIMELINE:-0}
+      HABBLAUD_UPDATE_CHECK: ${HABBLAUD_UPDATE_CHECK:-0}
+      # Onde as fontes do Hermes (server/sources/hermes.ts) acham os bancos montados pelo override.
+      HERMES_ROOT: /hermes
+      ESCRITORIO_PLANTAO_DIR: /plantao/incidentes
+    volumes:
+      - type: bind
+        source: ${HOME}/.local/state/plantao/incidentes
+        target: /plantao/incidentes
+        read_only: true
+        bind:
+          create_host_path: false
+    # Endurecimento: sistema de arquivos só leitura; /data e /tmp em memória; sem capabilities extras.
     read_only: true
     tmpfs:
       - /tmp
+      - /data
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     # Processo init mínimo: repassa sinais e recolhe processos órfãos.
     init: true
-
-volumes:
-  habblaud-data:

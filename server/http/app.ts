@@ -7,6 +7,7 @@ import { handleCodexEvent } from '../codex/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
+import { rotaBloqueada } from '../somente-leitura';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import { handleSessionsRoute } from './sessions';
@@ -58,6 +59,11 @@ export interface ApiDeps {
     status(): UpdateStatus;
     check(opts: { manual?: boolean }): Promise<UpdateStatus>;
   };
+  /**
+   * Escritório somente leitura (server/somente-leitura.ts): rotas que escrevem ou abrem conteúdo das sessões
+   * respondem 404. O server/index.ts passa SOMENTE_LEITURA (flag de build).
+   */
+  somenteLeitura?: boolean;
   /** Uso por assinatura e personas do Hermes (GET /api/hermes/uso, sources/hermes-uso.ts). Só com HERMES_ROOT. */
   hermesUso?: () => unknown;
 }
@@ -236,6 +242,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
     if (path !== '/api' && !path.startsWith('/api/')) return false;
     const method = req.method ?? 'GET';
     const isRead = method === 'GET' || method === 'HEAD';
+
+    if (deps.somenteLeitura && rotaBloqueada(method, path)) {
+      req.resume();
+      sendJson(res, 404, { error: 'rota desconhecida' });
+      return true;
+    }
 
     if (path === '/api/stream') {
       if (method !== 'GET') methodNotAllowed(res, 'GET');
