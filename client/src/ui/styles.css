@@ -8195,6 +8195,11 @@ html.is-replay #world {
 .pred-rot--guarded .pred-rot__est {
   color: #ffb0b0;
 }
+/* Sem lugar livre para o crachá inteiro (sala cheia): só o nome; selo e estado ficam no title (D4). */
+.pred-rot--curto .pred-selo,
+.pred-camada--detalhe .pred-rot--curto .pred-rot__est {
+  display: none;
+}
 
 /* Nome da sala na face da parede. */
 .pred-sala {
@@ -8212,7 +8217,7 @@ html.is-replay #world {
   pointer-events: none;
 }
 
-/* Placa do andar na laje (botão; tocar no andar chega na S7). */
+/* Placa do andar na laje (botão: tocar enquadra o andar, D3). */
 .pred-andar {
   position: absolute;
   left: 0;
@@ -8232,7 +8237,7 @@ html.is-replay #world {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
 }
 .pred-andar__n {
