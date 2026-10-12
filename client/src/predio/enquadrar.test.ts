@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { roomTheme } from '../art/theme';
 import { TILE } from '../art/api';
 import { exemploPredio, montarPredio } from '../ui/predio-model';
-import { andarEm, enquadrarRet, ESCALA_MAX, escalaVisao, ladoDireito, retAndar, retSala, retSalaPorId, TOPO_PX } from './enquadrar';
+import { andarEm, areaVisivel, enquadrarRet, prenderPlaca, ESCALA_MAX, escalaVisao, ladoDireito, retAndar, retSala, retSalaPorId, TOPO_PX } from './enquadrar';
 import { BX, montarCena } from './planta';
 
 const cena = () => {
@@ -59,6 +59,25 @@ describe('enquadrar (D3)', () => {
 
   it('nunca passa de ESCALA_MAX', () => {
     expect(enquadrarRet({ x: 0, y: 0, w: 50, h: 50 }, 1280, 800).escala).toBe(ESCALA_MAX);
+  });
+
+  it('placa do andar enquadrado não sobe para baixo da barra do topo (presa 8 px abaixo do topo visível)', () => {
+    // 1280, lista fechada, toque no TI (escala 2,02): a placa cairia com o centro 5 px acima do topo da camada
+    const st = 1000;
+    expect(prenderPlaca(st - 5, 44, st, st + 600)).toBe(st + 8 + 22);
+    // já dentro: não mexe
+    expect(prenderPlaca(st + 100, 44, st, st + 600)).toBe(st + 100);
+    // andar quase todo rolado para cima: a placa não sai do próprio andar
+    expect(prenderPlaca(st - 500, 44, st, st + 20)).toBe(st + 20 - 8 - 22);
+    // andar todo acima da tela: fica onde estava
+    expect(prenderPlaca(st - 500, 44, st, st - 100)).toBe(st - 500);
+  });
+
+  it('área visível desconta a barra/gaveta Atividade embaixo, a faixa do topo e a lista lateral', () => {
+    // 375: barra Atividade em 766..804 (--free-bottom 54), camada de 108 a 812
+    expect(areaVisivel(0, 300, 375, 704, { l: 0, r: 0 }, { t: 8, b: 54 })).toEqual({ x: 0, y: 308, w: 375, h: 642 });
+    // 1280 com a lista e a gaveta abertas
+    expect(areaVisivel(50, 0, 1280, 736, { l: 322, r: 0 }, { t: 8, b: 218 })).toEqual({ x: 372, y: 8, w: 958, h: 510 });
   });
 
   it('sala do lado tocado, a mais perto do toque; ?sala= pelo id de PLANTA', () => {

@@ -15,7 +15,7 @@ import { PathFinder } from '../world/path/astar';
 import { furnitureSprites, opaqueBounds } from '../world/render/scene';
 import { Bonecos, type Boneco } from './bonecos';
 import { BUSCA_MAX, posicionarCrachas, sobrepoe, type ItemCracha } from './crachas';
-import { andarEm, enquadrarRet, ESCALA_MAX, escalaVisao, LARGO_PX, ladoDireito, MARGEM, retAndar, retSala, retSalaPorId, type Ret } from './enquadrar';
+import { andarEm, areaVisivel, enquadrarRet, ESCALA_MAX, escalaVisao, LARGO_PX, ladoDireito, MARGEM, prenderPlaca, retAndar, retSala, retSalaPorId, type LivreV, type Ret } from './enquadrar';
 import { BX, LAJE, montarCena, POCO_W, POCO_X, WT, type AndarCena, type Cena } from './planta';
 import { areasVis, desenhar, type ArtPredio, type Quadro } from './render';
 
@@ -349,6 +349,14 @@ export class VistaPredio implements UiComponent {
     this.margem = l + r < this.camada.clientWidth - 80 ? { l, r } : { l: 0, r: 0 };
     return this.margem;
   }
+  /** Faixas cobertas em cima (--free-top além da base da barra) e embaixo (barra/gaveta Atividade, --free-bottom). */
+  private livreV(): LivreV {
+    const cs = getComputedStyle(this.ctx.root);
+    const px = (n: string) => Math.max(0, parseFloat(cs.getPropertyValue(n)) || 0);
+    const t = Math.max(0, px('--free-top') - (parseFloat(this.camada.style.top) || 0));
+    const b = px('--free-bottom');
+    return t + b < this.camada.clientHeight - 80 ? { t, b } : { t: 0, b: 0 };
+  }
   private escalaVisao(): number {
     return escalaVisao(this.camada.clientWidth, this.livre());
   }
@@ -553,6 +561,8 @@ export class VistaPredio implements UiComponent {
       const max = sl + W - r - 8 - w;
       const x = Math.round(Math.max(min, Math.min(Math.max(ox + BX * TILE * s + 4, min), max)));
       let y = Math.round(p.a.y0 * TILE * s + (LAJE * TILE * s) / 2);
+      // nunca acima do topo da camada (a placa sumia sob a barra do topo com o andar enquadrado em 1280)
+      y = Math.round(prenderPlaca(y, h, this.camada.scrollTop, p.a.y1 * TILE * s));
       if (alt.w && sobrepoe({ x, y: y - h / 2, w, h }, alt) > 0) y = Math.round(alt.y + alt.h + 4 + h / 2);
       p.el.style.left = `${x}px`;
       p.el.style.top = `${y}px`;
@@ -583,7 +593,8 @@ export class VistaPredio implements UiComponent {
     const W = this.camada.clientWidth;
     const H = this.camada.clientHeight;
     const { l, r } = this.margem;
-    const vis: Ret = { x: sl + l, y: st, w: W - l - r, h: H };
+    // sem a lista, a gaveta, a faixa do topo e a barra/gaveta Atividade: crachá ali fica escondido (D4)
+    const vis: Ret = areaVisivel(sl, st, W, H, { l, r }, this.livreV());
     const limite: Ret = { x: vis.x + 4, y: vis.y + 4, w: vis.w - 8, h: vis.h - 8 };
     const ativos: Cracha[] = [];
     for (const c of this.crachas.values()) {
@@ -671,6 +682,7 @@ export class VistaPredio implements UiComponent {
     const W = this.camada.clientWidth;
     const H = this.camada.clientHeight;
     const { l, r } = this.margem;
+    const { t, b: fundo } = this.livreV();
     const ox = this.offX();
     const s = this.escala;
     const sl = this.camada.scrollLeft;
@@ -687,7 +699,7 @@ export class VistaPredio implements UiComponent {
       res.total++;
       if (c.curto) res.abreviados++;
       if (moveis.some((mv) => sobrepoe(a, mv) > 0)) res.sobreMovel++;
-      if (a.x < l - 0.5 || a.x + a.w > W - r + 0.5 || a.y < -0.5 || a.y + a.h > H + 0.5) res.cortados++;
+      if (a.x < l - 0.5 || a.x + a.w > W - r + 0.5 || a.y < t - 0.5 || a.y + a.h > H - fundo + 0.5) res.cortados++;
       if (placas.some((p) => sobrepoe(a, p) > 0) || crachas.some((o, j) => j !== i && sobrepoe(a, o.r) > 0)) res.sobreCrachaOuPlaca++;
     });
     return res;

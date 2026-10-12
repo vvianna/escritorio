@@ -24,6 +24,27 @@ export interface Livre {
   r: number;
 }
 
+/** Faixas de cima e de baixo cobertas na camada (topo: o que passa da barra; baixo: barra/gaveta Atividade). */
+export interface LivreV {
+  t: number;
+  b: number;
+}
+
+/** Parte do palco (px) que aparece de fato: a tela rolada menos lista, gaveta, faixa do topo e Atividade. */
+export function areaVisivel(sl: number, st: number, W: number, H: number, livre: Livre, v: LivreV): Ret {
+  return { x: sl + livre.l, y: st + v.t, w: W - livre.l - livre.r, h: H - v.t - v.b };
+}
+
+/**
+ * Centro `y` da placa de um andar (px do palco): não sobe acima de `topoVis + MARGEM` (fica toda abaixo da barra
+ * do topo), mas também não desce além do fim do próprio andar (`fimAndar`). Andar fora da tela: não mexe.
+ */
+export function prenderPlaca(y: number, h: number, topoVis: number, fimAndar: number): number {
+  const min = topoVis + MARGEM + h / 2;
+  if (y >= min || fimAndar <= topoVis) return y;
+  return Math.max(y, Math.min(min, fimAndar - MARGEM - h / 2));
+}
+
 export interface Enquadramento {
   escala: number;
   scrollLeft: number;
