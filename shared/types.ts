@@ -72,6 +72,8 @@ export interface HermesModelo {
   em?: number;
   /** Quando a cópia do host (cadeiras.jsonl) foi gerada (epoch ms). */
   copiadoEm?: number;
+  /** Perfil à toa (sem cartão rodando): é o último modelo que ele usou, não o de agora. */
+  ocioso?: boolean;
 }
 
 /**

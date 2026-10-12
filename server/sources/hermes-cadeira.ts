@@ -179,6 +179,8 @@ export function assinaturaDe(provider: string, model: string): { assinatura: Her
   if (p.startsWith('openai') || p.startsWith('codex') || p.startsWith('chatgpt')) return { assinatura: 'codex', rotulo: 'Codex' };
   if (p.startsWith('xai') || p.startsWith('grok')) return { assinatura: 'grok', rotulo: 'Grok' };
   if (!p && m.startsWith('claude')) return { assinatura: 'claude', rotulo: 'Claude' };
+  if (!p && m.startsWith('grok')) return { assinatura: 'grok', rotulo: 'Grok' };
+  if (!p && m.startsWith('gpt')) return { assinatura: 'codex', rotulo: 'Codex' };
   return { assinatura: 'outro', rotulo: provider || 'Outro' };
 }
 
@@ -249,5 +251,19 @@ export function modeloDaCadeira(dados: DadosCadeiras, perfil: string, tarefa: st
     if (principal && principal !== model) out.principal = nomeModelo(principal);
     if (trocou && chamada?.reservaMotivo) out.motivo = chamada.reservaMotivo;
   }
+  return out;
+}
+
+/**
+ * Perfil à toa: o último modelo que ele usou (chamada do log de 6 h ou sessão kanban de 24 h, a mais recente).
+ * undefined = não usou nada nessas janelas.
+ */
+export function ultimoModeloDoPerfil(dados: DadosCadeiras, perfil: string): HermesModelo | undefined {
+  let melhor: { model: string; provider: string; em: number } | undefined;
+  for (const c of dados.chamadas) if (c.perfil === perfil && c.model && (!melhor || c.em > melhor.em)) melhor = { model: c.model, provider: c.provider, em: c.em };
+  for (const s of dados.sessoes) if (s.perfil === perfil && s.model && (!melhor || s.startedAt > melhor.em)) melhor = { model: s.model, provider: s.provider, em: s.startedAt };
+  if (!melhor) return undefined;
+  const out: HermesModelo = { ...assinaturaDe(melhor.provider, melhor.model), model: melhor.model, nome: nomeModelo(melhor.model), provider: melhor.provider, em: melhor.em * 1000, ocioso: true };
+  if (dados.copiadoEm) out.copiadoEm = dados.copiadoEm;
   return out;
 }

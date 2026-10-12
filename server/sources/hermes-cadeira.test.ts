@@ -219,6 +219,23 @@ describe('HermesSource: selo de modelo da cadeira e avisos na Atividade', () => 
     expect(dev().recent.filter((a) => a.icon === '↪')).toHaveLength(1);
   });
 
+  it('perfil à toa (ou cartão sem worker) mostra o último modelo usado, marcado ocioso', () => {
+    const office = new Office({ names: new NameStore(null), version: '9.9.9', startedAt: NOW, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => NOW });
+    escreve(
+      [
+        meta(),
+        linha({ tipo: 'sessao', perfil: 'judge', sessao: 'j1', model: 'gpt-5.5', billing_provider: 'openai-codex', started_at: S - 5000 }),
+        linha({ tipo: 'sessao', perfil: 'judge', sessao: 'j2', model: 'grok-4.7', billing_provider: '', started_at: S - 2000 }),
+        chamada({ perfil: 'judge', sessao: 'j0', model: 'claude-opus-5-5', provider: 'anthropic', em: S - 9000 }),
+      ],
+      1000,
+    );
+    new HermesSource({ office, root: tmp.dir, now: () => NOW, cadeirasFile: arq }).poll();
+    const judge = office.list().find((a) => a.name === 'judge')!;
+    expect(judge.hermesModelo).toMatchObject({ assinatura: 'grok', rotulo: 'Grok', model: 'grok-4.7', nome: 'Grok 4.7', ocioso: true, em: (S - 2000) * 1000 });
+    expect(judge.hermesModelo?.reserva).toBeUndefined();
+  });
+
   it('sem cópia (arquivo ausente) não há selo e nada quebra', () => {
     const office = new Office({ names: new NameStore(null), version: '9.9.9', startedAt: NOW, accounts: () => [], sources: () => [], accountName: () => undefined, now: () => NOW });
     new HermesSource({ office, root: tmp.dir, now: () => NOW, cadeirasFile: join(tmp.dir, 'nao-existe.jsonl') }).poll();

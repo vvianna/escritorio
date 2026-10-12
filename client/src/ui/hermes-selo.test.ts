@@ -17,6 +17,12 @@ describe('selo de modelo da cadeira', () => {
     });
   });
 
+  it('perfil à toa: o hover diz que é o último modelo usado', () => {
+    const s = seloModelo({ ...base, ocioso: true }, AGORA);
+    expect(s).toMatchObject({ texto: 'Claude', variante: 'claude' });
+    expect(s.titulo).toBe('à toa · último modelo usado: Claude Opus 5.5 · anthropic (assinatura Claude)');
+  });
+
   it('reserva: laranja com "↪ reserva", principal e motivo no hover', () => {
     const s = seloModelo({ ...base, assinatura: 'codex', rotulo: 'Codex', nome: 'GPT-5.5', provider: 'openai-codex', reserva: true, principal: 'Claude Opus 5.5', motivo: 'limite' }, AGORA);
     expect(s.texto).toBe('↪ reserva');
