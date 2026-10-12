@@ -8068,3 +8068,249 @@ html.is-replay #world {
 .predio__cracha.is-fora .predio__nome {
   color: var(--ui-muted);
 }
+
+/* ---- Prédio vertical (client/src/predio) ---- */
+/* Vista Prédio (specs/predio-vertical.md, D1): o botão "Salas | Prédio" abaixo da barra e a camada com o mapinha
+   vertical do time. Cores do protótipo do designer (prototipo/predio-vertical) e as variáveis da interface. */
+.pred-camada {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: var(--top-h);
+  /* D1: cobre o mundo (e o .ui-empty, z10), mas lista lateral (20), feed (15), gaveta (20/25), terminal, avisos,
+     configurações e a janela de prédio continuam por cima. */
+  z-index: 13;
+  overflow: auto;
+  background: #76a35c;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  font-family: var(--font-ui);
+  cursor: grab;
+}
+.pred-camada[hidden],
+.pred-zoom[hidden] {
+  display: none;
+}
+.pred-palco {
+  position: relative;
+}
+.pred-tela {
+  position: sticky;
+  top: 0;
+  left: 0;
+  display: block;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.pred-rotulos {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.pred-rotulos > * {
+  pointer-events: auto;
+}
+
+/* Crachá: nome + selo acima da cabeça; com zoom, o estado por extenso. */
+.pred-rot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  will-change: transform;
+}
+.pred-rot__nome {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 18, 27, 0.86);
+  color: var(--ui-text);
+  font: 700 12px/16px var(--font-ui);
+  white-space: nowrap;
+}
+.pred-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-idle);
+}
+.pred-rot--running .pred-dot {
+  background: var(--st-working);
+}
+.pred-rot--blocked .pred-dot {
+  background: var(--st-waiting);
+}
+.pred-rot--guarded .pred-dot {
+  background: var(--lv-crit);
+}
+.pred-rot--delivering .pred-dot {
+  background: #b69cff;
+}
+.pred-rot--conversando .pred-dot {
+  background: var(--st-shell);
+}
+/* Selo de modelo: o mesmo .ui-hsel da interface, em 11 px maiúsculo (nada visível abaixo de 11 px). */
+.pred-selo {
+  height: 15px;
+  padding: 0 4px;
+  font: 700 11px/1 var(--font-ui);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+/* Sobre a cena o fundo 22% transparente do .ui-hsel some: fundo opaco como o .pv-selo do protótipo. */
+.pred-selo.ui-hsel:not(.ui-hsel--reserva) {
+  background: color-mix(in srgb, var(--hsel) 30%, #12151d);
+  color: #f3f5fa;
+}
+.pred-selo--portao {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  background: var(--st-waiting);
+  color: #1b1405;
+}
+.pred-rot__est {
+  display: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(15, 18, 27, 0.86);
+  color: #dfe4ee;
+  font: 600 12px/15px var(--font-ui);
+  white-space: nowrap;
+}
+.pred-camada--detalhe .pred-rot__est {
+  display: inline-block;
+}
+.pred-rot--blocked .pred-rot__est {
+  color: #ffd27a;
+}
+.pred-rot--guarded .pred-rot__est {
+  color: #ffb0b0;
+}
+
+/* Nome da sala na face da parede. */
+.pred-sala {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(15, 18, 27, 0.78);
+  color: var(--ui-text);
+  font: 700 11px/15px var(--font-ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Placa do andar na laje (botão; tocar no andar chega na S7). */
+.pred-andar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: calc(100vw - 16px);
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--st-waiting);
+  background: #1b1405;
+  color: #ffe2a8;
+  font: 700 13px/1.15 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: default;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+.pred-andar__n {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #f2e3c2;
+  white-space: nowrap;
+}
+.pred-andar__n--mao {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--st-waiting);
+  color: #1b1405;
+}
+
+/* Alternador "Salas | Prédio": fixo, centralizado, 8 px abaixo da barra (top posto pelo JS). */
+.pred-alterna {
+  position: fixed;
+  top: calc(var(--top-h) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  padding: 3px;
+  background: #12151d;
+  border: 1px solid #48526b;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.pred-alterna__op {
+  min-height: 44px;
+  min-width: 88px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ui-text);
+  font: 600 14px/1 var(--font-ui);
+  cursor: pointer;
+}
+.pred-alterna__op[aria-pressed='true'] {
+  background: var(--ui-accent);
+  color: #0b1320;
+}
+
+/* + e − no canto de baixo à direita da área livre (não cobre gaveta nem feed, como os avisos). */
+.pred-zoom {
+  position: fixed;
+  right: max(12px, var(--free-right));
+  bottom: max(16px, var(--free-bottom));
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pred-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #5d6680;
+  border-radius: 8px;
+  background: #1d2333;
+  color: #eef1f7;
+  font: 600 14px/1 var(--font-ui);
+  cursor: pointer;
+}
+.pred-btn--ic {
+  padding: 0;
+  font-size: 18px;
+}
+.pred-alterna__op:focus-visible,
+.pred-btn:focus-visible,
+.pred-andar:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
