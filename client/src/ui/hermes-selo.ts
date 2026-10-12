@@ -29,7 +29,7 @@ function hora(ms: number): string {
 }
 
 export function seloModelo(m: HermesModelo, agora = Date.now()): Selo {
-  const partes = [`${m.nome} · ${m.provider || '?'} (${NOME_ASSINATURA[m.assinatura] ?? m.rotulo})`];
+  const partes = [`${m.ocioso ? 'à toa · último modelo usado: ' : ''}${m.nome} · ${m.provider || '?'} (${NOME_ASSINATURA[m.assinatura] ?? m.rotulo})`];
   if (m.reserva) {
     partes.push(`↪ na reserva${m.principal ? ` (principal: ${m.principal})` : ''}${m.motivo ? ` — motivo: ${m.motivo}` : ''}`);
   }

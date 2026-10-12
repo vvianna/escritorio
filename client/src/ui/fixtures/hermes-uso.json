@@ -1,0 +1,300 @@
+{
+    "geradoEm": 1791828632632,
+    "cincoHoras": [
+        {
+            "provedor": "anthropic",
+            "rotulo": "Claude",
+            "tokensEntrada": 7934,
+            "tokensSaida": 367259,
+            "total": 375193,
+            "custoEstimadoUsd": 85.8271,
+            "registros": 19,
+            "perfis": {
+                "default": 324781,
+                "dev": 44872,
+                "produto": 793,
+                "reviewer": 4747
+            }
+        }
+    ],
+    "seteDias": [
+        {
+            "provedor": "xai-oauth",
+            "rotulo": "Grok",
+            "tokensEntrada": 23063432,
+            "tokensSaida": 3409468,
+            "total": 26472900,
+            "custoEstimadoUsd": 0,
+            "registros": 84,
+            "perfis": {
+                "judge": 26472900
+            }
+        },
+        {
+            "provedor": "anthropic",
+            "rotulo": "Claude",
+            "tokensEntrada": 492275,
+            "tokensSaida": 15162915,
+            "total": 15655190,
+            "custoEstimadoUsd": 709.7009,
+            "registros": 977,
+            "perfis": {
+                "default": 3953915,
+                "alexa": 49072,
+                "architect": 1574789,
+                "auditor": 448810,
+                "designer": 360936,
+                "devcodex": 200903,
+                "dev": 7469928,
+                "pl-opens": 40394,
+                "produto": 245314,
+                "qa": 213032,
+                "reviewer": 744455,
+                "sergiao-site": 2299,
+                "sergiao": 77944,
+                "vini-chat": 682,
+                "vini": 272717
+            }
+        },
+        {
+            "provedor": "antigravity-agy",
+            "rotulo": "Antigravity",
+            "tokensEntrada": 6240426,
+            "tokensSaida": 2452285,
+            "total": 8692711,
+            "custoEstimadoUsd": 0,
+            "registros": 15,
+            "perfis": {
+                "devgemini": 8692711
+            }
+        },
+        {
+            "provedor": "openai-codex",
+            "rotulo": "ChatGPT",
+            "tokensEntrada": 5955230,
+            "tokensSaida": 544507,
+            "total": 6499737,
+            "custoEstimadoUsd": 0,
+            "registros": 61,
+            "perfis": {
+                "default": 362715,
+                "devcodex": 3702176,
+                "devgemini": 963790,
+                "judge": 1471056
+            }
+        },
+        {
+            "provedor": "openai-api",
+            "rotulo": "ChatGPT",
+            "tokensEntrada": 481394,
+            "tokensSaida": 195998,
+            "total": 677392,
+            "custoEstimadoUsd": 0,
+            "registros": 108,
+            "perfis": {
+                "architect": 41935,
+                "auditor": 16539,
+                "devcodex": 39448,
+                "dev": 400801,
+                "judge": 112969,
+                "reviewer": 65700
+            }
+        },
+        {
+            "provedor": "desconhecido",
+            "rotulo": "Desconhecido",
+            "tokensEntrada": 144071,
+            "tokensSaida": 144943,
+            "total": 289014,
+            "custoEstimadoUsd": 0,
+            "registros": 26,
+            "perfis": {
+                "default": 145410,
+                "architect": 17543,
+                "devcodex": 6886,
+                "devgemini": 611,
+                "dev": 68834,
+                "judge": 27004,
+                "reviewer": 21907,
+                "sergiao-site": 407,
+                "vini-chat": 412
+            }
+        },
+        {
+            "provedor": "fallback_chain[0](anthropic)",
+            "rotulo": "fallback_chain[0](anthropic)",
+            "tokensEntrada": 574,
+            "tokensSaida": 22,
+            "total": 596,
+            "custoEstimadoUsd": 0,
+            "registros": 1,
+            "perfis": {
+                "default": 596
+            }
+        }
+    ],
+    "personas": [
+        {
+            "perfil": "default",
+            "conversando": false,
+            "ultimaAtividade": 1791828431634,
+            "ultimaFonte": "telegram",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "alexa",
+            "conversando": false,
+            "ultimaAtividade": 1791767573201,
+            "ultimaFonte": "telegram",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "architect",
+            "conversando": false,
+            "ultimaAtividade": 1791802014026,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "auditor",
+            "conversando": false,
+            "ultimaAtividade": 1791787072223,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "deployer",
+            "conversando": false,
+            "ultimaAtividade": 1790637955413,
+            "ultimaFonte": "oneshot",
+            "modelo": "claude-sonnet-5-5"
+        },
+        {
+            "perfil": "designer",
+            "conversando": false,
+            "ultimaAtividade": 1791807177250,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "devcodex",
+            "conversando": false,
+            "ultimaAtividade": 1791804124985,
+            "ultimaFonte": "kanban",
+            "modelo": "gpt-5.5"
+        },
+        {
+            "perfil": "devgemini",
+            "conversando": false,
+            "ultimaAtividade": 1791802105403,
+            "ultimaFonte": "kanban",
+            "modelo": "gemini-3.1-pro-high"
+        },
+        {
+            "perfil": "dev",
+            "conversando": false,
+            "ultimaAtividade": 1791827827504,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "judge",
+            "conversando": false,
+            "ultimaAtividade": 1791786936158,
+            "ultimaFonte": "kanban",
+            "modelo": "grok-4.7"
+        },
+        {
+            "perfil": "pl-opens",
+            "conversando": false,
+            "ultimaAtividade": 1791796555523,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-sonnet-5-5"
+        },
+        {
+            "perfil": "produto",
+            "conversando": false,
+            "ultimaAtividade": 1791818102034,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "qa",
+            "conversando": false,
+            "ultimaAtividade": 1791807511129,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-sonnet-5-5"
+        },
+        {
+            "perfil": "reviewer",
+            "conversando": false,
+            "ultimaAtividade": 1791828291599,
+            "ultimaFonte": "kanban",
+            "modelo": "claude-sonnet-5-5"
+        },
+        {
+            "perfil": "sergiao-site",
+            "conversando": false,
+            "ultimaAtividade": 1791767759276,
+            "ultimaFonte": "api_server",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "sergiao",
+            "conversando": false,
+            "ultimaAtividade": 1791780432862,
+            "ultimaFonte": "telegram",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "vini-chat",
+            "conversando": false,
+            "ultimaAtividade": 1791500355520,
+            "ultimaFonte": "api_server",
+            "modelo": "claude-opus-5-5"
+        },
+        {
+            "perfil": "vini",
+            "conversando": false,
+            "ultimaAtividade": 1791794751543,
+            "ultimaFonte": "cron",
+            "modelo": "claude-opus-5-5"
+        }
+    ],
+    "falhas": [],
+    "copiadoEm": 1791828467000,
+    "antigravity": [
+        {
+            "familia": "Claude and GPT models",
+            "janela": "cincoHoras",
+            "restantePct": 100,
+            "usadoPct": 0,
+            "coletadoEm": "2026-10-12 15:00",
+            "reiniciaEm": 1791846051000
+        },
+        {
+            "familia": "Claude and GPT models",
+            "janela": "seteDias",
+            "restantePct": 100,
+            "usadoPct": 0,
+            "coletadoEm": "2026-10-12 15:00",
+            "reiniciaEm": 1792432851000
+        },
+        {
+            "familia": "Gemini Models",
+            "janela": "cincoHoras",
+            "restantePct": 100,
+            "usadoPct": 0,
+            "coletadoEm": "2026-10-12 15:00",
+            "reiniciaEm": 1791846051000
+        },
+        {
+            "familia": "Gemini Models",
+            "janela": "seteDias",
+            "restantePct": 85,
+            "usadoPct": 15,
+            "coletadoEm": "2026-10-12 15:00",
+            "reiniciaEm": 1792364060000
+        }
+    ]
+}

@@ -12,6 +12,7 @@ import {
   ROTULO_ESTADO,
   tokensCurto,
   type AgentePredio,
+  type FonteUso,
   type Ocupante,
   type PredioVista,
   type UsoHermes,
@@ -40,6 +41,7 @@ export class PredioPanel implements UiComponent {
   readonly el: HTMLElement;
   private body: HTMLElement;
   private uso: UsoHermes | null = null;
+  private fonte: FonteUso = 'carregando';
   private timer: ReturnType<typeof setInterval> | null = null;
   private assinatura = '';
   private aberto = false;
@@ -102,9 +104,15 @@ export class PredioPanel implements UiComponent {
   private async buscarUso(): Promise<void> {
     try {
       const r = await fetch('/api/hermes/uso', { headers: { accept: 'application/json' } });
-      this.uso = r.ok ? ((await r.json()) as UsoHermes) : null;
+      if (r.ok) {
+        this.uso = (await r.json()) as UsoHermes;
+        this.fonte = 'ok';
+      } else if (r.status === 404) {
+        this.uso = null;
+        this.fonte = 'desligada';
+      } else this.fonte = 'erro'; // fica o último uso lido
     } catch {
-      this.uso = null;
+      this.fonte = 'erro';
     }
     this.ctx.invalidate();
   }
@@ -113,7 +121,7 @@ export class PredioPanel implements UiComponent {
     if (!this.aberto) return;
     let agentes = (this.ctx.store.snapshot?.agents ?? []) as unknown as AgentePredio[];
     if (this.ctx.store.mock && !agentes.some((a) => a.provider === 'hermes')) agentes = exemploPredio().agentes;
-    const vista = montarPredio(agentes, this.uso);
+    const vista = montarPredio(agentes, this.uso, this.ctx.store.mock ? 'ok' : this.fonte);
     const assinatura = JSON.stringify(vista);
     if (assinatura === this.assinatura) return;
     this.assinatura = assinatura;
@@ -145,7 +153,7 @@ export class PredioPanel implements UiComponent {
         ),
       ),
       v.cotas.length ? h('div', { class: 'predio__cotas', text: v.cotas.map((c) => `${c.familia} (${c.janela}): ${Math.round(c.restantePct)}% livre`).join(' · ') }) : null,
-      v.vazio ? h('div', { class: 'predio__aviso', text: 'Fonte do Hermes desligada: defina HERMES_ROOT no servidor para ver o time.' }) : null,
+      v.aviso ? h('div', { class: 'predio__aviso', text: v.aviso }) : null,
     );
     const andares = v.andares.map((a) =>
       h(

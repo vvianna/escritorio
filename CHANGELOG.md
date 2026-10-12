@@ -31,6 +31,12 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- Prédio: o uso por assinatura cai na assinatura certa pelo provedor (`antigravity-agy` → Gemini, `openai-*` →
+  ChatGPT, `xai-*` → Grok, reserva `fallback_chain[0](anthropic)` → Claude) e a cota do Antigravity mostra "5 h" /
+  "7 dias". O aviso "Fonte do Hermes desligada" só aparece quando o servidor responde 404 ao `/api/hermes/uso`; antes
+  da primeira resposta aparece "Carregando…", e uma falha de leitura mantém o último uso com "tento de novo em 30 s".
+  Perfil à toa mostra no crachá (e na lista) o último modelo que usou, de `cadeiras.jsonl` (hover "à toa · último
+  modelo usado").
 - Hermes: a guarda de PR repetida (`active_pr`, 5+ em 10 min) não aparece mais como "Precisa de você / Responda ao
   Hermes no Telegram". Quem solta essa guarda é o Manager (pl-opens-maos), então ela vira a placa amarela "Manager
   resolvendo", sem mão levantada. Qualquer guarda repetida some assim que o cartão é reatribuído ou o worker inicia

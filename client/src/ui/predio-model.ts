@@ -114,7 +114,7 @@ export interface Ocupante {
   detalhe?: string;
   board?: string;
   agentId?: string;
-  /** Selo de provedor/modelo da cadeira (só quem tem cartão rodando e dado da cópia do host). */
+  /** Selo de provedor/modelo (cartão rodando: ao vivo; à toa: último modelo usado, `ocioso`). */
   modelo?: HermesModelo;
 }
 
@@ -147,8 +147,10 @@ export interface PredioVista {
   /** Cartões bloqueados esperando humano. */
   portoes: number;
   trabalhando: number;
-  /** Sem dado nenhum do Hermes (fonte desligada). */
+  /** Fonte do Hermes desligada de verdade: o servidor respondeu 404 ao uso e não há perfil nenhum no snapshot. */
   vazio: boolean;
+  /** Linha de aviso debaixo do uso (carregando, fonte desligada, falha de leitura); ausente = tudo certo. */
+  aviso?: string;
 }
 
 export const ROTULO_ESTADO: Record<EstadoOcupante, string> = {
@@ -161,26 +163,45 @@ export const ROTULO_ESTADO: Record<EstadoOcupante, string> = {
   fora: 'à toa',
 };
 
+/**
+ * Assinatura do topo a que um billing_provider pertence. O servidor rotula o Antigravity como "Antigravity" e deixa a
+ * reserva como "fallback_chain[0](anthropic)": aqui o Antigravity conta como Gemini e a reserva pelo provedor de dentro.
+ */
+export function assinaturaDoUso(p: UsoProvedor): string {
+  const prov = (/^fallback_chain\[\d+\]\((.*)\)$/.exec(p.provedor)?.[1] ?? p.provedor).toLowerCase();
+  if (prov.startsWith('anthropic') || prov.startsWith('claude')) return 'Claude';
+  if (prov.startsWith('openai') || prov.startsWith('chatgpt') || prov.startsWith('codex')) return 'ChatGPT';
+  if (prov.startsWith('antigravity') || prov.startsWith('agy') || prov.startsWith('google') || prov.startsWith('gemini')) return 'Gemini';
+  if (prov.startsWith('xai') || prov.startsWith('grok')) return 'Grok';
+  return p.rotulo;
+}
+
 /** Linhas do painel de uso: as 4 assinaturas sempre (0 quando não usou) + outras que aparecerem. */
 export function linhasUso(uso: UsoHermes | null | undefined): LinhaUso[] {
   const linhas = new Map<string, LinhaUso>();
   for (const r of ASSINATURAS) linhas.set(r, { rotulo: r, cincoHoras: 0, seteDias: 0, custo7dUsd: 0 });
-  const pega = (r: string) => {
+  const pega = (p: UsoProvedor) => {
+    const r = assinaturaDoUso(p);
     let l = linhas.get(r);
     if (!l) linhas.set(r, (l = { rotulo: r, cincoHoras: 0, seteDias: 0, custo7dUsd: 0 }));
     return l;
   };
-  for (const p of uso?.cincoHoras ?? []) pega(p.rotulo).cincoHoras += p.total || 0;
+  for (const p of uso?.cincoHoras ?? []) pega(p).cincoHoras += p.total || 0;
   for (const p of uso?.seteDias ?? []) {
-    const l = pega(p.rotulo);
+    const l = pega(p);
     l.seteDias += p.total || 0;
     l.custo7dUsd += p.custoEstimadoUsd || 0;
   }
   return [...linhas.values()];
 }
 
+/** Como está a leitura de GET /api/hermes/uso: ainda não respondeu, respondeu, 404 (fonte desligada) ou falhou. */
+export type FonteUso = 'carregando' | 'ok' | 'desligada' | 'erro';
+
+const JANELA: Record<string, string> = { cincoHoras: '5 h', seteDias: '7 dias' };
+
 /** Monta o prédio a partir dos agentes do snapshot e do uso (ambos podem faltar). */
-export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | null | undefined): PredioVista {
+export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | null | undefined, fonte: FonteUso = uso ? 'ok' : 'carregando'): PredioVista {
   // Um crachá por personagem: o da função e um por trabalhador (vaga), todos na sala da função.
   const ocupantes = new Map<string, Ocupante>();
   const hermes = agentes
@@ -229,13 +250,22 @@ export function montarPredio(agentes: readonly AgentePredio[], uso: UsoHermes | 
   cob.salas[0]!.ocupantes = [{ perfil: 'victor', nome: 'Victor', estado: portoes ? 'blocked' : 'fora', detalhe: portoes ? undefined : 'nada esperando você' }];
   if (portoes) cob.placa = `${portoes} ${portoes === 1 ? 'portão esperando' : 'portões esperando'} você`;
 
+  const temHermes = agentes.some((a) => a.provider === 'hermes');
+  const vazio = fonte === 'desligada' && !temHermes;
+  let aviso: string | undefined;
+  if (vazio) aviso = 'Fonte do Hermes desligada: defina HERMES_ROOT no servidor para ver o time.';
+  else if (fonte === 'desligada') aviso = 'Uso por assinatura desligado no servidor (defina ESCRITORIO_USO ou HERMES_ROOT).';
+  else if (fonte === 'carregando') aviso = 'Carregando o uso por assinatura…';
+  else if (fonte === 'erro') aviso = 'Não consegui ler o uso agora; tento de novo em 30 s.';
+
   return {
     andares,
     uso: linhasUso(uso),
-    cotas: uso?.antigravity ?? [],
+    cotas: (uso?.antigravity ?? []).map((c) => ({ ...c, janela: JANELA[c.janela] ?? c.janela })),
     portoes,
     trabalhando: todos.filter((o) => o.estado === 'running').length,
-    vazio: !uso && !agentes.some((a) => a.provider === 'hermes'),
+    vazio,
+    aviso,
   };
 }
 

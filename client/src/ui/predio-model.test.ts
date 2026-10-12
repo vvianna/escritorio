@@ -1,5 +1,6 @@
+import usoReal from './fixtures/hermes-uso.json';
 import { describe, expect, it } from 'vitest';
-import { exemploPredio, linhasUso, montarPredio, salaDe, tokensCurto, type AgentePredio } from './predio-model';
+import { exemploPredio, linhasUso, montarPredio, salaDe, tokensCurto, type AgentePredio, type UsoHermes } from './predio-model';
 
 const andarDe = (v: ReturnType<typeof montarPredio>, perfil: string) =>
   v.andares.find((a) => a.salas.some((s) => s.ocupantes.some((o) => o.perfil === perfil)))?.id;
@@ -48,7 +49,7 @@ describe('prédio', () => {
     const ti = v.andares.find((a) => a.id === 'ti')!;
     expect(ti.salas.at(-1)).toMatchObject({ id: 'extra', ocupantes: [{ perfil: 'pl-xyz', estado: 'cafe' }] });
     expect(v.vazio).toBe(false);
-    expect(montarPredio([], null).vazio).toBe(true);
+    expect(montarPredio([], null, 'desligada').vazio).toBe(true);
   });
 
   it('um crachá por trabalhador, com o nome da vaga, na sala da função', () => {
@@ -82,6 +83,46 @@ describe('prédio', () => {
     expect(l.map((x) => x.rotulo)).toEqual(['Claude', 'ChatGPT', 'Gemini', 'Grok', 'nous']);
     expect(l[0]).toEqual({ rotulo: 'Claude', cincoHoras: 10, seteDias: 150, custo7dUsd: 2.5 });
     expect(linhasUso(null).every((x) => x.seteDias === 0)).toBe(true);
+  });
+
+  it('JSON real do /api/hermes/uso: cada provedor cai na sua assinatura', () => {
+    const uso = usoReal as UsoHermes;
+    const l = Object.fromEntries(linhasUso(uso).map((x) => [x.rotulo, x]));
+    expect(Object.keys(l)).toEqual(['Claude', 'ChatGPT', 'Gemini', 'Grok', 'Desconhecido']);
+    expect(l.Claude!.seteDias).toBe(15_655_190 + 596); // anthropic + fallback_chain[0](anthropic)
+    expect(l.Claude!.cincoHoras).toBe(375_193);
+    expect(l.ChatGPT!.seteDias).toBe(6_499_737 + 677_392); // openai-codex + openai-api
+    expect(l.Gemini!.seteDias).toBe(8_692_711); // antigravity-agy
+    expect(l.Grok!.seteDias).toBe(26_472_900); // xai-oauth
+  });
+
+  it('aviso: fonte desligada só com 404; carregando e "ninguém trabalhando" não são fonte desligada', () => {
+    const uso = usoReal as UsoHermes;
+    const ocioso: AgentePredio[] = [{ id: 'hermes:qa', provider: 'hermes', name: 'qa' }];
+    const ok = montarPredio(ocioso, uso, 'ok');
+    expect(ok.trabalhando).toBe(0);
+    expect(ok.vazio).toBe(false);
+    expect(ok.aviso).toBeUndefined();
+    const carregando = montarPredio([], null, 'carregando');
+    expect(carregando.vazio).toBe(false);
+    expect(carregando.aviso).toMatch(/carregando/i);
+    expect(montarPredio(ocioso, uso, 'erro')).toMatchObject({ vazio: false, aviso: expect.stringMatching(/de novo/) });
+    expect(montarPredio([], null, 'desligada')).toMatchObject({ vazio: true, aviso: expect.stringMatching(/HERMES_ROOT/) });
+    expect(montarPredio(ocioso, null, 'desligada')).toMatchObject({ vazio: false, aviso: expect.stringMatching(/uso por assinatura desligado/i) });
+  });
+
+  it('cota do Antigravity com janela legível', () => {
+    const uso = usoReal as UsoHermes;
+    const janelas = montarPredio([], uso, 'ok').cotas.map((c) => c.janela);
+    expect(janelas).toContain('5 h');
+    expect(janelas).toContain('7 dias');
+    expect(janelas.some((j) => /cincoHoras|seteDias/.test(j))).toBe(false);
+  });
+
+  it('perfil à toa mostra o último modelo usado na sala', () => {
+    const modelo = { assinatura: 'grok' as const, rotulo: 'Grok', model: 'grok-4.7', nome: 'Grok 4.7', provider: 'xai-oauth', ocioso: true };
+    const v = montarPredio([{ id: 'hermes:judge', provider: 'hermes', name: 'judge', hermesModelo: modelo }], null, 'ok');
+    expect(ocupante(v, 'judge')).toMatchObject({ estado: 'cafe', modelo });
   });
 
   it('tokens curtos', () => {
