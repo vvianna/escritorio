@@ -140,7 +140,7 @@ function str(v: unknown): string | undefined {
 }
 
 /** Boards em que "esperar merge de PR aprovado" é do opens-automerge, não do Victor (mesma lista do kanban-nanny). */
-const AUTOMERGE_BOARDS = new Set(['openfinance', 'openhealth', 'openinfra', 'hermes-lab']);
+const AUTOMERGE_BOARDS = new Set(['openfinance', 'openhealth', 'openinfra', 'hermes-lab', 'choppinho']);
 
 /**
  * Bloqueio que NÃO é com o Victor: roteamento interno que o kanban-nanny / o Manager resolvem sozinhos. Mesma regra do
