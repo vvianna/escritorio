@@ -2,12 +2,12 @@
 // móveis, telas, janelas, árvores, carros), com os andares empilhados e a coluna do elevador à direita (hall, poço,
 // escada e a cabine). Copiado e organizado do protótipo (branch prototipo/predio-vertical, `desenhar`).
 // Só desenha o que está visível; quem chama decide o ritmo (12 quadros/s, D9).
-import { TILE, type ArtModule, type ScreenMode, type Sprite } from '../art/api';
+import { TILE, type ArtModule, type Dir, type Pose, type ScreenMode, type Sprite } from '../art/api';
 import { EXTERIOR_WALL } from '../world/layout/exterior';
 import type { ExteriorProp } from '../world/layout/types';
 import { carSprite, propSprite, shadowSprite } from '../world/render/props';
 import { buildAreaVis, furnitureSprites, opaqueBounds, WALL_MARGIN, wallItemOrigin, wallSprites, type AreaVis, type FurnVis } from '../world/render/scene';
-import type { Boneco } from './bonecos';
+import type { Boneco, Caixa } from './bonecos';
 import { BW, BX, ESCADA_W, ESCADA_X, HALL_W, LAJE, POCO_W, POCO_X, WT, type Cena } from './planta';
 
 /**
@@ -41,6 +41,31 @@ export interface Quadro {
   bonecos: readonly Boneco[];
   porMesa: ReadonlyMap<string, Boneco>;
   deployRodando: boolean;
+  /** Cabine (S8): andar fracionário, porta 0..4 e quem está dentro (ids de boneco ou `caixa:<chave>`). */
+  elevador: { readonly posicao: number; readonly porta: number; readonly carga: readonly string[] };
+  /** 📦 fora das mãos (na porta, na cabine ou sobre a mesa). */
+  caixas: readonly Caixa[];
+}
+
+/** Topo da cabine (px de mundo) no andar fracionário `posicao` (0 = Cobertura): entre as paradas dos dois andares. */
+export function cabineY(cena: Cena, posicao: number): number {
+  const n = cena.andares.length;
+  const p = Math.max(0, Math.min(n - 1, posicao));
+  const i0 = Math.floor(p);
+  const i1 = Math.min(n - 1, i0 + 1);
+  const y = (i: number) => (cena.paradas[cena.andares[i]!.id].cy + 1) * TILE;
+  return y(i0) + (y(i1) - y(i0)) * (p - i0);
+}
+
+/** Sprite do boneco no quadro (pose animada); null se o kit não desenha a combinação. */
+function spriteBoneco(art: ArtModule, b: Boneco, agora: number, pose: Pose = b.pose, dir: Dir = b.dir): Sprite | null {
+  const n = art.poseFrameCount(pose);
+  const frame = Math.floor(agora / art.poseFrameDuration(pose) + (b.seed % 7)) % n;
+  try {
+    return art.characterSprite({ appearance: b.ap, dir, pose, frame, held: b.held, seated: false });
+  } catch {
+    return null;
+  }
 }
 
 /** Visual das áreas (pisos, paredes e móveis pré-desenhados); uma vez por cena. */
@@ -93,8 +118,9 @@ function desenharCaminhao(ctx: CanvasRenderingContext2D, x: number, y: number, t
   ctx.fillRect(x + 46 + f * 2, y + 12 - f, 3, 3);
 }
 
-/** Poço e escada (contínuos do topo do prédio ao fim do Térreo) e a cabine parada no Térreo, porta fechada. */
-function desenharColuna(ctx: CanvasRenderingContext2D, art: ArtPredio, cena: Cena): void {
+/** Poço e escada (contínuos do topo do prédio ao fim do Térreo) e a cabine na posição fracionária (S8). */
+function desenharColuna(ctx: CanvasRenderingContext2D, art: ArtPredio, q: Quadro, agora: number): void {
+  const { cena } = q;
   const y0 = cena.predioY0 * TILE;
   const h = (cena.predioY1 - cena.predioY0) * TILE;
   const px = POCO_X * TILE;
@@ -119,10 +145,9 @@ function desenharColuna(ctx: CanvasRenderingContext2D, art: ArtPredio, cena: Cen
     for (let y = y0 + 3; y < y0 + h; y += 5) ctx.fillRect(ex, y, ew, 1);
     ctx.fillRect(ex + ew - 2, y0, 2, h);
   }
-  const p = cena.paradas.terreo;
   const cx = px;
-  const cy = (p.cy + 1) * TILE;
-  const cab = art.elevatorCab?.(0);
+  const cy = Math.round(cabineY(cena, q.elevador.posicao));
+  const cab = art.elevatorCab?.(q.elevador.porta);
   if (cab) ctx.drawImage(cab.canvas, Math.round(cx + pw / 2 - cab.ax), Math.round(cy + 2 * TILE - cab.ay));
   else {
     // provisório até a S5: piso da cabine e a porta fechada a oeste
@@ -133,6 +158,26 @@ function desenharColuna(ctx: CanvasRenderingContext2D, art: ArtPredio, cena: Cen
     ctx.fillRect(cx + pw - 1, cy, 1, 2 * TILE);
     ctx.fillStyle = '#8b93a5';
     ctx.fillRect(cx, cy + 2, 2, 2 * TILE - 4);
+  }
+  // passageiros recortados dentro da cabine (sem crachá) e o 📦 sobre a cabine se alguém leva caixa
+  let caixa = false;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(cx + 3, cy + 3, pw - 6, 2 * TILE - 6);
+  ctx.clip();
+  q.elevador.carga.forEach((id, i) => {
+    if (id.startsWith('caixa:')) return void (caixa = true);
+    const b = q.bonecos.find((x) => x.id === id);
+    if (!b) return;
+    if (b.held === 'box') caixa = true;
+    const sp = spriteBoneco(art, b, agora, 'stand', 'left');
+    if (sp) ctx.drawImage(sp.canvas, Math.round(cx + 13 + i * 11 - sp.ax), Math.round(cy + 2 * TILE - 3 - sp.ay));
+  });
+  ctx.restore();
+  if (caixa) {
+    const ic = art.iconSprite('box');
+    const pula = Math.round(Math.sin(agora / 260) * 1.5);
+    ctx.drawImage(ic.canvas, Math.round(cx + pw / 2 - ic.canvas.width / 2), cy - ic.canvas.height - 1 + pula);
   }
 }
 
@@ -217,7 +262,7 @@ export function desenhar(ctx: CanvasRenderingContext2D, art: ArtPredio, q: Quadr
     }
   }
   // coluna do elevador (poço, escada e cabine)
-  if (vis(POCO_X * TILE, cena.predioY0 * TILE, (POCO_W + ESCADA_W) * TILE, (cena.predioY1 - cena.predioY0) * TILE)) desenharColuna(ctx, art, cena);
+  if (vis(POCO_X * TILE, cena.predioY0 * TILE, (POCO_W + ESCADA_W) * TILE, (cena.predioY1 - cena.predioY0) * TILE)) desenharColuna(ctx, art, q, agora);
   // entidades por profundidade
   const ents: Ent[] = [];
   for (const a of q.vis) {
@@ -228,7 +273,8 @@ export function desenhar(ctx: CanvasRenderingContext2D, art: ArtPredio, q: Quadr
     }
   }
   for (const b of q.bonecos) {
-    if (!vis(b.x - 24, b.y - 48, 48, 60)) {
+    // dentro da cabine: desenhado recortado pela coluna, sem crachá (D4)
+    if (b.dentro || !vis(b.x - 24, b.y - 48, 48, 60)) {
       b.head.ok = false;
       continue;
     }
@@ -276,6 +322,12 @@ export function desenhar(ctx: CanvasRenderingContext2D, art: ArtPredio, q: Quadr
       const s2 = propSprite(p);
       ctx.drawImage(s2.canvas, Math.round(p.x - s2.ax), Math.round(p.y - s2.ay));
     }
+  }
+  // 📦 fora das mãos: na porta do elevador esperando a cabine ou quem busca, ou sobre a mesa livre
+  for (const c of q.caixas) {
+    if (c.dentro || !vis(c.x - 12, c.y - 24, 24, 24)) continue;
+    const ic = art.iconSprite('box');
+    ctx.drawImage(ic.canvas, Math.round(c.x - ic.canvas.width / 2), Math.round(c.y - ic.canvas.height));
   }
   // ícones sobre a cabeça
   for (const b of q.bonecos) {
