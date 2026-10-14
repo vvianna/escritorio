@@ -1,5 +1,6 @@
 // Rotas da API (/api/*). Respostas JSON; rotas desconhecidas -> 404 JSON.
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '../../shared/appearance';
 import type { AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
@@ -13,6 +14,7 @@ import { isJsonContentType, isLoopbackHost } from './guard';
 import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
 import { handleStatsRoute } from './stats';
+import { handleTimeRoute } from './time';
 import type { TerminalStreams } from './terminal';
 
 export interface ApiDeps {
@@ -66,6 +68,10 @@ export interface ApiDeps {
   somenteLeitura?: boolean;
   /** Uso por assinatura e personas do Hermes (GET /api/hermes/uso, sources/hermes-uso.ts). Só com HERMES_ROOT. */
   hermesUso?: () => unknown;
+  /** Diretório home usado pelo servidor, para ler ~/.local/state/time/diarios. */
+  home?: string;
+  /** Raiz do Hermes com kanban.db e kanban/boards/*. */
+  hermesRoot?: string;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -316,6 +322,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else sendJson(res, 200, deps.hermesUso());
       return true;
     }
+    if (handleTimeRoute(req, res, url, { home: deps.home ?? process.env.HOME ?? '.', hermesRoot: deps.hermesRoot ?? join(process.env.HOME ?? '.', '.hermes'), sendJson })) return true;
     if (path.startsWith('/api/sessions/')) {
       handleSessionsRoute(req, res, path, { history: deps.terminal ? deps.sessions : undefined, terminals });
       return true;

@@ -10,6 +10,28 @@ import { DemoSimulator } from '../../../shared/demo/simulator';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'mock';
 
+export interface TimeDiarioItem {
+  date: string;
+  profile: string;
+  text: string;
+}
+
+export interface EsperandoVictorItem {
+  board: string;
+  taskId: string;
+  title: string;
+  assignee?: string;
+  status: string;
+  reason?: string;
+}
+
+export interface EsperandoVictorResponse {
+  total: number;
+  pendencias: number;
+  portoes: number;
+  items: EsperandoVictorItem[];
+}
+
 export interface StoreEvents {
   snapshot: OfficeSnapshot;
   feed: FeedItem[];
@@ -164,6 +186,22 @@ export class OfficeStore {
 
   agentsInRoom(roomId: string): AgentInfo[] {
     return (this.snapshot?.agents ?? []).filter((a) => a.roomId === roomId);
+  }
+
+  async timeDiarios(profile: string, days = 8): Promise<TimeDiarioItem[]> {
+    if (!profile) return [];
+    const res = await fetch(`/api/time/diarios?profile=${encodeURIComponent(profile)}&days=${days}`);
+    if (!res.ok) return [];
+    const body = (await res.json()) as { items?: TimeDiarioItem[] };
+    return body.items ?? [];
+  }
+
+  async esperandoVictor(): Promise<EsperandoVictorResponse> {
+    const empty: EsperandoVictorResponse = { total: 0, pendencias: 0, portoes: 0, items: [] };
+    if (this.mock) return empty;
+    const res = await fetch('/api/time/esperando-victor');
+    if (!res.ok) return empty;
+    return (await res.json()) as EsperandoVictorResponse;
   }
 
   /** Histórico longo de um agente (servidor). No modo mock e no timelapse devolve o `recent`. */

@@ -2,6 +2,7 @@
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
 import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
+import type { TimeDiarioItem } from '../net/store';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
 import { MessageComposer } from './composer';
@@ -246,6 +247,11 @@ class AgentView {
   private timelineShown = TIMELINE_STEP;
   private stats: KvList<StatKey>;
   private social: SocialSection;
+  private diarioSec: ReturnType<typeof section>;
+  private diarioBody: HTMLElement;
+  private diarioReq = 0;
+  private diarios: TimeDiarioItem[] = [];
+  private diariosProfile = '';
   readonly character: CharacterEditor;
   private sessionValue: HTMLElement;
   private linesPlus: HTMLElement;
@@ -340,6 +346,8 @@ class AgentView {
     this.composer = new MessageComposer(ctx, 'drawer');
     this.msgSec = section('Mandar mensagem', this.composer.el);
     this.social = new SocialSection(ctx);
+    this.diarioBody = h('div', { class: 'ui-diario' }, h('p', { class: 'ui-muted ui-small', text: 'Carregando diário…' }));
+    this.diarioSec = section('Diário do agente', this.diarioBody);
     this.perm = new PermissionCard(ctx);
 
     this.tasksBar = createProgress('Progresso das tarefas');
@@ -399,6 +407,7 @@ class AgentView {
       nowSec.el,
       this.msgSec.el,
       this.social.el,
+      this.diarioSec.el,
       this.tasksSec.el,
       this.teamSec.el,
       this.timelineSec.el,
@@ -423,6 +432,9 @@ class AgentView {
     this.team.clear();
     this.shells.clear();
     this.actDetails.open = false;
+    this.diarios = [];
+    this.diariosProfile = '';
+    this.renderDiarios(null);
     const req = ++this.historyReq;
     this.ctx.store
       .agentHistory(id)
@@ -553,6 +565,8 @@ class AgentView {
     if (live) this.social.render(a.id, now);
     else setHidden(this.social.el, true);
 
+    this.ensureDiarios(a);
+
     // Tarefas.
     const tp = taskProgress(a.tasks);
     setHidden(this.tasksSec.el, a.tasks.length === 0);
@@ -591,6 +605,51 @@ class AgentView {
 
     // Codex: como ter o ao vivo e as aprovações por aqui (o servidor ainda não diz se os hooks dele estão ligados).
     setHidden(this.codexHint, !codex || a.kind !== 'main' || !live || this.ctx.store.replaying);
+  }
+
+  private ensureDiarios(a: AgentInfo): void {
+    const profile = a.provider === 'hermes' ? (a.hermesProfile ?? a.name.replace(/\s+#\d+$/, '')) : '';
+    setHidden(this.diarioSec.el, !profile);
+    if (!profile || profile === this.diariosProfile) return;
+    this.diariosProfile = profile;
+    this.diarios = [];
+    this.renderDiarios(null);
+    const req = ++this.diarioReq;
+    this.ctx.store
+      .timeDiarios(profile, 8)
+      .then((items) => {
+        if (req !== this.diarioReq || profile !== this.diariosProfile) return;
+        this.diarios = items;
+        this.renderDiarios(items);
+      })
+      .catch(() => {
+        if (req !== this.diarioReq) return;
+        this.renderDiarios([]);
+      });
+  }
+
+  private renderDiarios(items: TimeDiarioItem[] | null): void {
+    this.diarioBody.replaceChildren();
+    if (items === null) {
+      this.diarioBody.append(h('p', { class: 'ui-muted ui-small', text: 'Carregando diário…' }));
+      setText(this.diarioSec.extra, '');
+      return;
+    }
+    setText(this.diarioSec.extra, items.length ? `${items.length}/8` : '');
+    if (!items.length) {
+      this.diarioBody.append(h('p', { class: 'ui-muted ui-small', text: 'Nenhum diário gerado para este perfil nos últimos 8 dias.' }));
+      return;
+    }
+    this.diarioBody.append(
+      ...items.map((d, i) =>
+        h(
+          'details',
+          { class: 'ui-diario__dia', attrs: i === 0 ? { open: 'open' } : undefined },
+          h('summary', { text: d.date }),
+          h('pre', { class: 'ui-diario__texto', text: d.text }),
+        ),
+      ),
+    );
   }
 
   /** Lista as perguntas pendentes com as opções, só para leitura (sem o pedido no escritório, a resposta é no Claude Code). */

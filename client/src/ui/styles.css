@@ -950,6 +950,60 @@
   background: rgba(255, 181, 71, 0.26);
 }
 
+.ui-counter--victor {
+  min-width: 78px;
+  transition:
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.ui-counter--victor.is-active {
+  background: rgba(255, 181, 71, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 181, 71, 0.5);
+}
+
+.ui-counter--victor.is-active .ui-counter__value,
+.ui-counter--victor.is-active .ui-counter__label {
+  color: var(--st-waiting);
+}
+
+.ui-espera {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 12px;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: var(--radius);
+  background: var(--ui-bg-solid);
+  box-shadow: 0 18px 40px rgba(5, 7, 12, 0.45);
+}
+
+.ui-espera__body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ui-espera__list {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-espera__list li {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--ui-bg-soft);
+}
+
+.ui-espera__list small {
+  color: var(--ui-muted);
+}
+
 @keyframes ui-waiting-glow {
   50% {
     box-shadow:
@@ -2362,6 +2416,35 @@
   font: 600 11.5px/1 var(--font-ui);
   color: var(--ui-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.ui-diario {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-diario__dia {
+  border: 1px solid var(--ui-line);
+  border-radius: var(--radius-sm);
+  background: var(--ui-bg-soft);
+}
+
+.ui-diario__dia > summary {
+  min-height: 34px;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--ui-text);
+}
+
+.ui-diario__texto {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 10px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.45 var(--font-mono);
+  color: var(--ui-muted);
 }
 
 .ui-now {

@@ -218,6 +218,8 @@ const api = createApiHandler({
   updates,
   somenteLeitura: SOMENTE_LEITURA,
   hermesUso: hermesUsoReader(process.env, config.home),
+  home: config.home,
+  hermesRoot,
 });
 
 const server = http.createServer();
