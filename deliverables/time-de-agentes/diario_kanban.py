@@ -41,6 +41,7 @@ class ProfileDay:
     prs: set[str] = field(default_factory=set)
     runs: int = 0
     cards: set[str] = field(default_factory=set)
+    seen: set[str] = field(default_factory=set)
 
 
 def local_day_bounds(day: dt.date) -> tuple[int, int]:
@@ -97,6 +98,10 @@ def task_map(con: sqlite3.Connection, ids: Iterable[str]) -> dict[str, sqlite3.R
 
 
 def add_card(day: ProfileDay, kind: str, board: str, task: sqlite3.Row | None, task_id: str, detail: str = "") -> None:
+    key = f"{kind}:{board}:{task_id}"
+    if key in day.seen:
+        return
+    day.seen.add(key)
     title = task["title"] if task is not None else task_id
     line = CardLine(board, task_id, title, detail)
     getattr(day, kind).append(line)
@@ -144,7 +149,7 @@ def collect_board(board: str, db_path: Path, start: int, end: int, days: dict[st
             elif kind in {"blocked", "gave_up", "spawn_failed", "crashed", "timed_out"}:
                 reason = payload.get("reason") or payload.get("error") or payload.get("message") or (task["last_failure_error"] if task is not None else "")
                 add_card(day, "blocked" if kind == "blocked" else "errors", board, task, e["task_id"], one_line(str(reason or "")))
-            elif kind in {"failed", "respawn_guarded"}:
+            elif kind == "failed":
                 add_card(day, "errors", board, task, e["task_id"], one_line(text))
 
         runs = con.execute(
@@ -163,11 +168,14 @@ def collect_board(board: str, db_path: Path, start: int, end: int, days: dict[st
                 if source:
                     for pr in PR_RE.findall(str(source)):
                         day.prs.add(pr)
-            if r["outcome"] == "completed":
+            outcome = r["outcome"]
+            if outcome == "completed":
                 add_card(day, "completed", board, tasks.get(r["task_id"]), r["task_id"], one_line(r["summary"]))
-            elif r["outcome"] in {"request_changes", "blocked"}:
+            elif outcome in {"request_changes", "changes_requested"}:
                 add_card(day, "returned", board, tasks.get(r["task_id"]), r["task_id"], one_line(r["summary"] or r["error"]))
-            elif r["outcome"] and r["outcome"] != "completed":
+            elif outcome == "blocked":
+                add_card(day, "blocked", board, tasks.get(r["task_id"]), r["task_id"], one_line(r["summary"] or r["error"]))
+            elif outcome in {"crashed", "gave_up", "spawn_failed", "timed_out", "failed"}:
                 add_card(day, "errors", board, tasks.get(r["task_id"]), r["task_id"], one_line(r["error"] or r["summary"]))
     finally:
         con.close()

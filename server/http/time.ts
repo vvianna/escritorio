@@ -53,7 +53,8 @@ export function readDiarios(home: string, profile: string, date = todayLocal(), 
   if (Number.isNaN(start.getTime())) return [];
   const out: TimeDiarioItem[] = [];
   for (let i = 0; i < Math.max(1, Math.min(31, days)); i++) {
-    const d = new Date(start.getTime() - i * 86_400_000);
+    const d = new Date(start);
+    d.setDate(start.getDate() - i);
     const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const file = join(base, stamp, `${profile}.md`);
     if (!existsSync(file)) continue;
@@ -78,11 +79,6 @@ function payloadReason(payload: string | null | undefined): string | undefined {
   }
 }
 
-function wantsVictor(text: string | undefined): boolean {
-  if (!text) return false;
-  return /\b(Victor|humano|aprova|aprovar|decis[aã]o|allow once|esperando o Victor|gate|port[aã]o|PR\s*#?\d+)/i.test(text);
-}
-
 export function esperandoVictor(root: string): EsperandoVictorResponse {
   const items: EsperandoVictorItem[] = [];
   let pendencias = 0;
@@ -105,7 +101,7 @@ export function esperandoVictor(root: string): EsperandoVictorResponse {
       for (const r of rows) {
         const reason = firstLine(payloadReason(reasonStmt?.get(r.id)?.payload) ?? r.last_failure_error ?? undefined);
         const isPendencia = b.board === 'pendencias';
-        const isGate = !isPendencia && (r.block_kind === 'needs_input' || wantsVictor(reason) || wantsVictor(r.title));
+        const isGate = !isPendencia && r.status === 'blocked' && r.block_kind === 'needs_input';
         if (!isPendencia && !isGate) continue;
         if (isPendencia) pendencias++;
         else portoes++;
