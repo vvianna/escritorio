@@ -301,6 +301,7 @@ describe('readBoard', () => {
   it('internalBlock: PR esperando merge só é interno nos boards do automerge (como no nanny)', () => {
     const r = 'O que travou: falta mergear o PR #7.\nVocê faz: clique em Merge.';
     expect(internalBlock('openfinance', r)).toBe('PR aprovado esperando merge');
+    expect(internalBlock('choppinho', r)).toBe('PR aprovado esperando merge');
     expect(internalBlock('default', r)).toBeUndefined();
     expect(internalBlock('default', undefined)).toBeUndefined();
     expect(internalBlock('default', 'O que travou: conflito com a origin/main no PR #3')).toBe('conflito com a main');
