@@ -1,5 +1,6 @@
 // Barra superior: marca, conexão, contadores, uso por conta e botões de controle.
 import type { UiComponent, UiContext } from './context';
+import type { EsperandoVictorResponse } from '../net/store';
 import { h, iconButton, setAttr, setHidden, setText, setTitle, setVariant } from './dom';
 import { formatDuration, formatInt } from './format';
 import { FALLBACK_MARK, ICONS } from './icons';
@@ -37,6 +38,14 @@ export class TopBar implements UiComponent {
   private shellCursor = 0;
   private usage: UsageCards;
   private version: VersionChip;
+  private esperandoBtn: HTMLButtonElement;
+  private esperandoValue: HTMLElement;
+  private esperandoPanel: HTMLElement;
+  private esperandoBody: HTMLElement;
+  private esperando: EsperandoVictorResponse = { total: 0, pendencias: 0, portoes: 0, items: [] };
+  private esperandoOpen = false;
+  private esperandoLastFetch = 0;
+  private esperandoFetching = false;
   private hadOpen = false;
   private sidebarBtn: HTMLButtonElement;
   private feedBtn: HTMLButtonElement;
@@ -91,6 +100,18 @@ export class TopBar implements UiComponent {
       counterWrap.insertBefore(this.shellsBtn, this.counters.get('waiting')!.el);
     }
 
+    this.esperandoValue = h('span', { class: 'ui-counter__value', text: '0' });
+    this.esperandoBody = h('div', { class: 'ui-espera__body' });
+    this.esperandoPanel = h('div', { class: 'ui-espera', hidden: true }, h('strong', { text: 'Esperando o Victor' }), this.esperandoBody);
+    this.esperandoBtn = h(
+      'button',
+      { class: 'ui-counter ui-counter--victor', type: 'button', on: { click: () => this.toggleEsperando() } },
+      h('span', { class: 'ui-counter__icon', text: '✋', attrs: { 'aria-hidden': 'true' } }),
+      this.esperandoValue,
+      h('span', { class: 'ui-counter__label', text: 'esperando o Victor' }),
+    );
+    counterWrap.append(this.esperandoBtn);
+
     this.usage = new UsageCards(ctx);
 
     this.sidebarBtn = iconButton(ICONS.sidebar, 'Painel lateral ( [ )', () => ctx.togglePanel('sidebar'), 'ui-btn-sidebar');
@@ -133,6 +154,7 @@ export class TopBar implements UiComponent {
       counterWrap,
       this.usage.el,
       h('div', { class: 'ui-topbar__right' }, viewGroup, panelGroup),
+      this.esperandoPanel,
     );
   }
 
@@ -185,6 +207,7 @@ export class TopBar implements UiComponent {
         : `${WAITING_HINT}. Clique para ir até o primeiro.`,
     );
     this.renderShells(c.shells, now);
+    this.refreshEsperando(now);
 
     this.usage.render();
     this.version.render();
@@ -193,6 +216,68 @@ export class TopBar implements UiComponent {
     this.feedBtn.setAttribute('aria-pressed', String(this.ctx.isPanelOpen('feed')));
     this.timelapseBtn.setAttribute('aria-pressed', String(this.ctx.isTimelapseOpen()));
     setHidden(this.timelapseBtn, store.mock);
+  }
+
+  private toggleEsperando(): void {
+    this.esperandoOpen = !this.esperandoOpen;
+    setHidden(this.esperandoPanel, !this.esperandoOpen);
+    setAttr(this.esperandoBtn, 'aria-expanded', String(this.esperandoOpen));
+    if (this.esperandoOpen) this.renderEsperandoPanel();
+  }
+
+  private refreshEsperando(now: number): void {
+    setHidden(this.esperandoBtn, this.ctx.store.mock);
+    if (this.ctx.store.mock || this.esperandoFetching || now - this.esperandoLastFetch < 30_000) {
+      this.renderEsperandoCounter();
+      return;
+    }
+    this.esperandoFetching = true;
+    this.ctx.store
+      .esperandoVictor()
+      .then((data) => {
+        this.esperando = data;
+        this.esperandoLastFetch = now;
+        this.renderEsperandoCounter();
+        if (this.esperandoOpen) this.renderEsperandoPanel();
+      })
+      .catch(() => {
+        this.esperandoLastFetch = now;
+      })
+      .finally(() => {
+        this.esperandoFetching = false;
+      });
+  }
+
+  private renderEsperandoCounter(): void {
+    const n = this.esperando.total;
+    setText(this.esperandoValue, formatInt(n));
+    this.esperandoBtn.classList.toggle('is-active', n > 0);
+    setAttr(this.esperandoBtn, 'aria-label', `${formatInt(n)} cartões esperando o Victor`);
+    setTitle(this.esperandoBtn, `${formatInt(n)} esperando o Victor: ${this.esperando.pendencias} pendências + ${this.esperando.portoes} portões/PRs. Clique para listar.`);
+  }
+
+  private renderEsperandoPanel(): void {
+    this.esperandoBody.replaceChildren();
+    if (!this.esperando.items.length) {
+      this.esperandoBody.append(h('p', { class: 'ui-muted ui-small', text: 'Nada aberto agora.' }));
+      return;
+    }
+    this.esperandoBody.append(
+      h('p', { class: 'ui-muted ui-small', text: `${this.esperando.pendencias} no board pendencias; ${this.esperando.portoes} portões/PRs em outros boards.` }),
+      h(
+        'ul',
+        { class: 'ui-espera__list' },
+        ...this.esperando.items.slice(0, 20).map((item) =>
+          h(
+            'li',
+            {},
+            h('strong', { text: `${item.board}:${item.taskId}` }),
+            h('span', { text: ` — ${item.title}` }),
+            item.reason ? h('small', { text: item.reason }) : null,
+          ),
+        ),
+      ),
+    );
   }
 
   private renderShells(n: number, now: number): void {
